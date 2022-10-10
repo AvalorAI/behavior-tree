@@ -3,9 +3,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::{
+    broadcast::{channel, Receiver, Sender},
+    mpsc, oneshot,
+};
 
-use super::node::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
+use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
 
 // Any custom (async) evaluator can be made with this trait
@@ -86,6 +89,7 @@ where
     child: NodeHandle,
     tx: Sender<ParentMessage>,
     rx: Receiver<ChildMessage>,
+    rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
     status: Status,
     evaluator: T,
 }
@@ -98,12 +102,21 @@ where
     pub fn new(handle: Handle<V>, evaluator: T, child: NodeHandle) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_name = child.name.clone();
-        let node = Self::_new(evaluator.clone(), handle, child, node_tx.clone(), node_rx);
+        let node = Self::_new(
+            evaluator.clone(),
+            handle,
+            child,
+            node_tx.clone(),
+            node_rx,
+            rx_expand,
+        );
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(
+            tx_prior,
             tx,
             node_tx,
             "Condition",
@@ -118,6 +131,7 @@ where
         child: NodeHandle,
         tx: Sender<ParentMessage>,
         rx: Receiver<ChildMessage>,
+        rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
     ) -> Self {
         Self {
             handle,
@@ -125,6 +139,7 @@ where
             child,
             tx,
             rx,
+            rx_expand,
             status: Status::Idle,
         }
     }
@@ -254,6 +269,23 @@ where
         }
     }
 
+    async fn expand_tree(
+        &mut self,
+        sender: oneshot::Sender<Vec<NodeHandle>>,
+    ) -> Result<(), NodeError> {
+        log::debug!("Condition {:?} expanding tree", self.evaluator.get_name());
+        let mut child_handles = self
+            .child
+            .append_childs(vec![])
+            .await
+            .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+        child_handles.append(&mut vec![self.child.clone()]);
+        sender
+            .send(child_handles)
+            .map_err(|_| NodeError::TokioBroadcastSendError("The oneshot failed".to_string()))?;
+        Ok(())
+    }
+
     async fn _serve(mut self) -> Result<(), NodeError> {
         let mut val_rx = self.handle.subscribe().await?;
         loop {
@@ -261,6 +293,7 @@ where
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
                 Ok(msg) = self.child.listen() => self.process_msg_from_child(msg).await?,
                 Ok(val) = val_rx.recv() => self.process_incoming_val(val).await?,
+                Some(msg) = self.rx_expand.recv() => self.expand_tree(msg).await?,
                 else => log::warn!("Only invalid messages received"),
             };
         }

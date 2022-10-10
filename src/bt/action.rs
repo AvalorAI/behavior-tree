@@ -1,10 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::{mem, vec};
-use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::{
+    broadcast::{channel, Receiver, Sender},
+    mpsc, oneshot,
+};
 use tokio::time::{sleep, Duration};
 
-use super::node::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
+use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
+use super::CHANNEL_SIZE;
 
 #[async_trait]
 pub trait Executor {
@@ -41,7 +44,8 @@ where
     T: Executor + Send + Sync + 'static,
 {
     tx: Sender<ParentMessage>,
-    rx: Option<Receiver<ChildMessage>>,
+    rx: Receiver<ChildMessage>,
+    rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
     blocking: bool,
     status: Status,
     inner: T,
@@ -52,25 +56,28 @@ where
     T: Executor + Send + Sync + 'static,
 {
     pub fn new(inner: T, blocking: bool) -> NodeHandle {
-        let (node_tx, _) = channel(100);
-        let (tx, node_rx) = channel(100);
+        let (node_tx, _) = channel(CHANNEL_SIZE);
+        let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let name = inner.get_name();
-        let node = Self::_new(node_tx.clone(), node_rx, inner, blocking);
+        let node = Self::_new(node_tx.clone(), node_rx, rx_expand, inner, blocking);
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx, node_tx, "Action", name, vec![])
+        NodeHandle::new(tx_prior, tx, node_tx, "Action", name, vec![])
     }
 
     fn _new(
         tx: Sender<ParentMessage>,
         rx: Receiver<ChildMessage>,
+        rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
         inner: T,
         blocking: bool,
     ) -> Self {
         Self {
             tx,
-            rx: Some(rx),
+            rx,
+            rx_expand,
             blocking,
             status: Status::Idle,
             inner,
@@ -96,41 +103,55 @@ where
     }
 
     async fn process_msg_from_parent(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        match msg {
-            ChildMessage::Start => self.update_status(Status::Running).await?,
-            ChildMessage::Stop => {
-                if !self.blocking {
-                    self.update_status(Status::Failure).await?
+        if !self.blocking || !self.status.is_running() {
+            match msg {
+                ChildMessage::Start => self.update_status(Status::Running).await?,
+                ChildMessage::Stop => {
+                    if !self.blocking {
+                        self.update_status(Status::Failure).await?
+                    }
                 }
+                ChildMessage::Kill => return Err(NodeError::KillError),
             }
-            ChildMessage::Kill => return Err(NodeError::KillError),
         }
         Ok(())
     }
 
-    async fn listen_for_parent_msg(&self, rx: &mut Receiver<ChildMessage>) -> Option<ChildMessage> {
-        while let Ok(msg) = rx.recv().await {
-            if !self.blocking || !self.status.is_running() {
-                return Some(msg); // If it needs to be stopped immediately, pass each message directly
+    async fn expand_tree(
+        &mut self,
+        sender: oneshot::Sender<Vec<NodeHandle>>,
+    ) -> Result<(), NodeError> {
+        log::debug!("Action {:?} expanding tree", self.inner.get_name());
+        let child_handles = vec![];
+        sender
+            .send(child_handles)
+            .map_err(|_| NodeError::TokioBroadcastSendError("The oneshot failed".to_string()))?;
+        Ok(())
+    }
+
+    async fn execute(inner: &T, is_running: bool) -> Result<bool, NodeError> {
+        if is_running {
+            Ok(inner
+                .execute()
+                .await
+                .map_err(|e| NodeError::ExecutionError(e.to_string()))?)
+        } else {
+            loop {
+                sleep(Duration::from_secs(10)).await // Sleep until execution started by parent
             }
         }
-        None
     }
 
     async fn _serve(mut self) -> Result<(), NodeError> {
-        let mut rx = mem::replace(&mut self.rx, None).unwrap(); // To take ownership
         loop {
-            if self.status.is_running() {
-                tokio::select! {
-                    Some(msg) = self.listen_for_parent_msg(&mut rx) => self.process_msg_from_parent(msg).await?,
-                    res = self.inner.execute() => match res.map_err(|e| NodeError::ExecutionError(e.to_string()))? {
-                        true => self.update_status(Status::Succes).await?,
-                        false => self.update_status(Status::Failure).await?
-                    },
-                    else => log::warn!("Only invalid messages received"),
-                }
-            } else if let Ok(msg) = rx.recv().await {
-                self.process_msg_from_parent(msg).await?
+            tokio::select! {
+                Ok(msg) =  self.rx.recv() => self.process_msg_from_parent(msg).await?,
+                res = ActionProcess::execute(&self.inner, self.status.is_running()) => match res.map_err(|e| NodeError::ExecutionError(e.to_string()))? {
+                    true => self.update_status(Status::Succes).await?,
+                    false => self.update_status(Status::Failure).await?
+                },
+                Some(msg) = self.rx_expand.recv() => self.expand_tree(msg).await?,
+                else => log::warn!("Only invalid messages received"),
             }
         }
     }
@@ -213,7 +234,7 @@ pub(crate) mod mocking {
     use tokio::time::{sleep, Duration};
 
     use super::{Action, BlockingAction, Executor};
-    use crate::bt::node::NodeHandle;
+    use crate::bt::handle::NodeHandle;
 
     pub struct MockAction {
         name: String,

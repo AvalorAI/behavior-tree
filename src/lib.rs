@@ -1,4 +1,4 @@
-pub mod bt;
+mod bt;
 
 pub use crate::bt::BehaviorTree;
 pub use crate::bt::{

@@ -1,9 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::{
+    broadcast::{channel, Receiver, Sender},
+    mpsc, oneshot,
+};
 use tokio::time::{sleep, Duration};
 
-use super::node::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
+use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
 
 pub struct LoopDecorator {
@@ -11,20 +14,33 @@ pub struct LoopDecorator {
     child: NodeHandle,
     tx: Sender<ParentMessage>,
     rx: Receiver<ChildMessage>,
+    rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
     status: Status,
     pause_millis: u64,
 }
 
 impl LoopDecorator {
-    pub fn new<S: Into<String> + Clone>(name: S, child: NodeHandle, pause_millis: u64) -> NodeHandle {
+    pub fn new<S: Into<String> + Clone>(
+        name: S,
+        child: NodeHandle,
+        pause_millis: u64,
+    ) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_name = child.name.clone();
-        let node = Self::_new(name.clone().into(), child, node_tx.clone(), node_rx, pause_millis);
+        let node = Self::_new(
+            name.clone().into(),
+            child,
+            node_tx.clone(),
+            node_rx,
+            rx_expand,
+            pause_millis,
+        );
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx, node_tx, "Decorator", name, vec![child_name])
+        NodeHandle::new(tx_prior, tx, node_tx, "Decorator", name, vec![child_name])
     }
 
     fn _new(
@@ -32,6 +48,7 @@ impl LoopDecorator {
         child: NodeHandle,
         tx: Sender<ParentMessage>,
         rx: Receiver<ChildMessage>,
+        rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
         pause_millis: u64,
     ) -> Self {
         Self {
@@ -39,6 +56,7 @@ impl LoopDecorator {
             child,
             tx,
             rx,
+            rx_expand,
             status: Status::Idle,
             pause_millis,
         }
@@ -88,7 +106,12 @@ impl LoopDecorator {
     }
 
     fn notify_child(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        log::debug!("Loop {:?} - notify child {:?}: {:?}", self.name, self.child.name, msg);
+        log::debug!(
+            "Loop {:?} - notify child {:?}: {:?}",
+            self.name,
+            self.child.name,
+            msg
+        );
         self.child.send(msg)?;
         Ok(())
     }
@@ -127,11 +150,29 @@ impl LoopDecorator {
         Ok(Status::Failure) // Default failure to parent to prevent blocking
     }
 
+    async fn expand_tree(
+        &mut self,
+        sender: oneshot::Sender<Vec<NodeHandle>>,
+    ) -> Result<(), NodeError> {
+        log::debug!("Loop {:?} expanding tree", self.name.clone());
+        let mut child_handles = self
+            .child
+            .append_childs(vec![])
+            .await
+            .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+        child_handles.append(&mut vec![self.child.clone()]);
+        sender
+            .send(child_handles)
+            .map_err(|_| NodeError::TokioBroadcastSendError("The oneshot failed".to_string()))?;
+        Ok(())
+    }
+
     async fn _serve(mut self) -> Result<(), NodeError> {
         loop {
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
                 Ok(msg) = self.child.listen() => self.process_msg_from_child(msg).await?,
+                Some(msg) = self.rx_expand.recv() => self.expand_tree(msg).await?,
                 else => log::warn!("Only invalid messages received"),
             };
         }
@@ -156,7 +197,7 @@ impl Node for LoopDecorator {
                     }
                 }
                 NodeError::PoisonError(e) => poison_parent(poison_tx, name, e), // Propagate error
-                err => poison_parent(poison_tx, name, err.to_string()),         // If any error in itself, poison parent
+                err => poison_parent(poison_tx, name, err.to_string()), // If any error in itself, poison parent
             },
             Ok(_) => {} // Should never occur
         }

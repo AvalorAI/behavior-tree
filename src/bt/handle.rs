@@ -1,7 +1,7 @@
 use anyhow::{Result};
 use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{broadcast::{Receiver, Sender}, oneshot, mpsc};
 use thiserror::Error;
 use actor_model::ActorError;
 
@@ -10,6 +10,7 @@ pub struct NodeHandle {
     pub element: String,
     pub name: String,
     pub children_names: Vec<String>,
+    tx_prior: mpsc::Sender<oneshot::Sender<Vec<NodeHandle>>>, // This handle is used to expand the tree to a vector 
     tx: Sender<ChildMessage>, // This handle is held by a parent, so it can send child messages
     rx: Receiver<ParentMessage>, // The parent can receive messages from its child, so can listen to the handle for messages
     tx_child: Sender<ParentMessage>, // It holds a clone of the sender of the child, so it can call subscribe for new receivers when cloning the struct
@@ -18,8 +19,9 @@ pub struct NodeHandle {
 impl Clone for NodeHandle {
     fn clone(&self) -> NodeHandle {
         Self {
+            rx: self.tx_child.subscribe(), // An rx cannot be cloned, but it can be created by subscribing to the transmitter
+            tx_prior: self.tx_prior.clone(),
             tx: self.tx.clone(),
-            rx: self.tx_child.subscribe(),
             tx_child: self.tx_child.clone(),
             element: self.element.clone(),
             name: self.name.clone(),
@@ -30,6 +32,7 @@ impl Clone for NodeHandle {
 
 impl NodeHandle {
     pub fn new<S, T>(
+        tx_prior: mpsc::Sender<oneshot::Sender<Vec<NodeHandle>>>,
         tx: Sender<ChildMessage>,
         tx_child: Sender<ParentMessage>,
         element: S,
@@ -41,6 +44,7 @@ impl NodeHandle {
         T: Into<String>,
     {
         Self {
+            tx_prior,
             tx,
             rx: tx_child.subscribe(),
             tx_child,
@@ -50,7 +54,7 @@ impl NodeHandle {
         }
     }
 
-    pub async fn kill(&mut self) -> Result<()> {
+    pub(crate) async fn kill(&mut self) -> Result<()> {
         if self.tx.receiver_count() > 0 { // It already exited if no receiver is alive
             self.send(ChildMessage::Kill)?; 
             loop { 
@@ -88,6 +92,14 @@ impl NodeHandle {
         Ok(rx.recv().await?)
     }
 
+    pub async fn append_childs(&self, mut handles: Vec<NodeHandle>) -> Result<Vec<NodeHandle>>{
+        let (respond_to, get_result) = oneshot::channel();
+        self.tx_prior.send(respond_to).await?; 
+        let mut child_handles = get_result.await?;
+        handles.append(&mut child_handles);
+        Ok(handles)
+    }
+
 
     pub fn get_xml(&self) -> XMLElement {
        let element = if self.element == "Condition" {
@@ -117,6 +129,7 @@ impl NodeHandle {
 pub enum FutResponse {
     Parent(ChildMessage, Receiver<ChildMessage>),
     Child(usize, ParentMessage, Receiver<ParentMessage>),
+    Expansion(oneshot::Sender<Vec<NodeHandle>>, mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>)
 }
 
 #[async_trait]
@@ -125,15 +138,15 @@ pub trait Node: Sync + Send {
 
     // Consuming and returning the receiver allows stacking it in a future vector
     async fn run_listen_parent(mut rx: Receiver<ChildMessage>) -> Result<FutResponse, NodeError> {
-        let res = Self::_listen_parent(&mut rx).await;
-        let msg = res.unwrap();
+        let msg = rx.recv().await?;
         Ok(FutResponse::Parent(msg, rx))
     }
 
-    async fn _listen_parent(rx: &mut Receiver<ChildMessage>) -> Result<ChildMessage, NodeError> {
-        // TODO add some timeout?
-        Ok(rx.recv().await?)
+    async fn run_listen_expansion(mut rx: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>) -> Result<FutResponse, NodeError> {
+        let msg = rx.recv().await.ok_or(NodeError::TokioRecvError)?;
+        Ok(FutResponse::Expansion(msg, rx))
     }
+
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -166,7 +179,7 @@ impl Status {
 pub enum ChildMessage {
     Start,
     Stop,
-    Kill,  // (oneshot::Sender<Result<()>>)
+    Kill, 
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -189,6 +202,8 @@ pub enum NodeError {
     TokioBroadcastSendError(String), 
     #[error("Tokio broadcast receiver error")]
     TokioBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
+    #[error("Tokio mpsc receiver error")]
+    TokioRecvError,
     #[error("Tokio sender error")]
     TokioSendError,
     #[error("Actor Error")]

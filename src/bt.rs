@@ -4,8 +4,8 @@ use simple_xml_builder::XMLElement;
 use std::fs::File;
 use tokio::time::{sleep, Duration};
 
-use self::node::NodeError;
-use node::{ChildMessage, NodeHandle, ParentMessage, Status};
+use self::handle::NodeError;
+use handle::{ChildMessage, NodeHandle, ParentMessage, Status};
 
 const CHANNEL_SIZE: usize = 20;
 
@@ -13,14 +13,13 @@ pub mod action;
 pub mod blocking_check;
 pub mod condition;
 pub mod fallback;
+pub mod handle;
 pub mod loop_dec;
-pub mod node;
 pub mod sequence;
 
 pub struct BehaviorTree {
     pub root_node: NodeHandle,
-    pub handles: Option<Vec<NodeHandle>>, // TODO can also be used to kill or verify if its running?
-    pub bt_type: Option<String>,
+    pub handles: Option<Vec<NodeHandle>>,
 }
 
 impl BehaviorTree {
@@ -28,39 +27,29 @@ impl BehaviorTree {
         Self {
             root_node,
             handles: None,
-            bt_type: None,
-        }
-    }
-
-    pub fn new_complete(root_node: NodeHandle, handles: Vec<NodeHandle>, bt_type: String) -> Self {
-        // TODO verify completeness of the handles by nested loops as in XML builder
-        Self {
-            root_node,
-            handles: Some(handles),
-            bt_type: Some(bt_type),
         }
     }
 
     // Run continuously
     pub async fn run(&mut self) -> Result<()> {
+        let handles = self.root_node.append_childs(vec![]).await?;
+        self.handles = Some(handles);
+
         if let Err(e) = self._run().await {
-            if let Some(handles) = self.handles.as_mut() {
-                log::warn!("BT crashed - {:?} ", e);
-                for handle in handles {
-                    log::debug!("Killing {} {:?}", handle.element, handle.name);
-                    if let Err(e) = handle.kill().await {
-                        log::error!("Killing {:?} failed: {e:?}", handle.name);
-                        return Err(anyhow!(
-                            "Cannot safely rebuild behaviour tree with active nodes: {e:?}"
-                        ));
-                    };
-                }
-                log::debug!("Killed all nodes succesfully");
-            } else {
-                panic!("The BT is not initialized with handles, so it cannot be killed safely!")
+            log::warn!("BT crashed - {:?} ", e);
+            let handles = self.handles.as_mut().unwrap(); // Safe unwrap as its setter is guarding this function
+            for handle in handles {
+                log::debug!("Killing {} {:?}", handle.element, handle.name);
+                if let Err(e) = handle.kill().await {
+                    log::error!("Killing {:?} failed: {e:?}", handle.name);
+                    return Err(anyhow!(
+                        "Cannot safely rebuild behaviour tree with active nodes: {e:?}"
+                    ));
+                };
             }
+            log::debug!("Killed all nodes succesfully");
         }
-        Ok(())
+        Ok(()) // This Ok is never fired, as _run can only exit through error propagation
     }
 
     async fn _run(&mut self) -> Result<()> {
@@ -73,6 +62,17 @@ impl BehaviorTree {
     }
 
     async fn run_once(&mut self) -> Result<Status, NodeError> {
+        // Run_once is called directly from testing functions, so doubly check the existance of the handles
+        if self.handles.is_none() {
+            self.handles = Some(
+                self.root_node
+                    .append_childs(vec![])
+                    .await
+                    .expect("Expanding the handles failed"),
+                // TODO if this fails, it should not be allowed to exit, because killing cannot be done safely
+            );
+        }
+
         self.root_node.send(ChildMessage::Start)?;
         loop {
             match self.root_node.listen().await? {
@@ -90,16 +90,10 @@ impl BehaviorTree {
         }
     }
 
-    pub fn import(&self) {
-        // Load from XML or JSON
-        todo!()
-    }
-
-    pub fn export_xml(&self) -> Result<String> {
+    // TODO
+    pub fn export_xml(&self, name: String) -> Result<String> {
         // Groot format. See https://github.com/BehaviorTree/Groot
-        let bt_type = self.bt_type.as_ref().ok_or(anyhow!("No handles set"))?;
-        let file = File::create(format!("src/c2/bt/bt_{:?}.xml", bt_type))?;
-
+        let file = File::create(format!("src/c2/bt/bt_{:?}.xml", name))?;
         let handles = self.handles.as_ref().ok_or(anyhow!("No handles set"))?;
 
         let mut root = XMLElement::new("root");
@@ -145,9 +139,9 @@ impl BehaviorTree {
         element
     }
 
-    pub fn export_json(&self) -> Result<String> {
-        let bt_type = self.bt_type.as_ref().ok_or(anyhow!("No handles set"))?;
-        let file = File::create(format!("src/c2/bt/bt_{:?}.json", bt_type))?;
+    // TODO
+    pub fn export_json(&self, name: String) -> Result<String> {
+        let file = File::create(format!("src/c2/bt/bt_{:?}.json", name))?;
 
         let handles = self.handles.as_ref().ok_or(anyhow!("No handles set"))?;
 
@@ -204,28 +198,35 @@ mod tests {
 
     #[tokio::test]
     async fn test_killing_nodes() {
-        // When
-        let mut action = MockBlockingAction::new(1);
-        assert!(action.kill().await.is_ok());
-
         let mut action = MockAction::new(1);
-        assert!(action.kill().await.is_ok());
+        _ = action.append_childs(vec![]).await.unwrap();
+
+        let mut blocking_action = MockBlockingAction::new(1);
+        _ = blocking_action.append_childs(vec![]).await.unwrap();
+        assert!(blocking_action.kill().await.is_ok());
 
         let handle = Handle::new_from(1);
         let mut cond = Condition::new("1", handle.clone(), |x| x > 0, action.clone());
+        _ = cond.append_childs(vec![]).await.unwrap();
         assert!(cond.kill().await.is_ok());
 
         let mut check = BlockingCheck::new("1", handle.clone(), action.clone());
+        _ = check.append_childs(vec![]).await.unwrap();
         assert!(check.kill().await.is_ok());
 
         let mut bt_loop = LoopDecorator::new("1", action.clone(), 100);
+        _ = bt_loop.append_childs(vec![]).await.unwrap();
         assert!(bt_loop.kill().await.is_ok());
 
         let mut fb = Fallback::new(vec![action.clone()]);
+        _ = fb.append_childs(vec![]).await.unwrap();
         assert!(fb.kill().await.is_ok());
 
         let mut seq = Sequence::new(vec![action.clone()]);
+        _ = seq.append_childs(vec![]).await.unwrap();
         assert!(seq.kill().await.is_ok());
+
+        assert!(action.kill().await.is_ok()); // Actions cannot be killed before expansion of the tree
     }
 
     //      Fb

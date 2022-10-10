@@ -4,10 +4,13 @@ use futures::future::select_all;
 use futures::{Future, FutureExt};
 use std::mem;
 use std::pin::Pin;
-use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::{
+    broadcast::{channel, Receiver, Sender},
+    mpsc, oneshot,
+};
 
-use super::node::NodeError;
-use crate::bt::node::{ChildMessage, FutResponse, Node, NodeHandle, ParentMessage, Status};
+use super::handle::NodeError;
+use crate::bt::handle::{ChildMessage, FutResponse, Node, NodeHandle, ParentMessage, Status};
 use crate::bt::CHANNEL_SIZE;
 
 // Simplify complex type
@@ -18,6 +21,7 @@ pub struct Sequence {
     children: Vec<NodeHandle>,
     tx: Sender<ParentMessage>,
     rx: Option<Receiver<ChildMessage>>,
+    rx_expand: Option<mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>>,
     running_child: Option<usize>,
     status: Status,
 }
@@ -38,12 +42,19 @@ impl Sequence {
     fn _init(children: Vec<NodeHandle>, name: String) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_names = children.iter().map(|x| x.name.clone()).collect();
-        let node = Self::_new(name.clone(), children, node_tx.clone(), Some(node_rx));
+        let node = Self::_new(
+            name.clone(),
+            children,
+            node_tx.clone(),
+            Some(node_rx),
+            Some(rx_expand),
+        );
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx, node_tx, "Sequence", name, child_names)
+        NodeHandle::new(tx_prior, tx, node_tx, "Sequence", name, child_names)
     }
 
     fn _new(
@@ -51,12 +62,14 @@ impl Sequence {
         children: Vec<NodeHandle>,
         tx: Sender<ParentMessage>,
         rx: Option<Receiver<ChildMessage>>,
+        rx_expand: Option<mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>>,
     ) -> Self {
         Self {
             name,
             children,
             tx,
             rx,
+            rx_expand,
             running_child: None,
             status: Status::Idle,
         }
@@ -165,10 +178,32 @@ impl Sequence {
         Ok(())
     }
 
+    async fn expand_tree(
+        &mut self,
+        sender: oneshot::Sender<Vec<NodeHandle>>,
+    ) -> Result<(), NodeError> {
+        log::debug!("Sequence {:?} expanding tree", self.name.clone());
+        let mut child_handles = vec![];
+        for child in &self.children {
+            child_handles = child
+                .append_childs(child_handles)
+                .await
+                .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+        }
+        child_handles.append(&mut self.children.clone());
+        sender
+            .send(child_handles)
+            .map_err(|_| NodeError::TokioBroadcastSendError("The oneshot failed".to_string()))?;
+        Ok(())
+    }
+
     async fn _serve(mut self) -> Result<(), NodeError> {
         let mut futures = self.extract_futures(); // To take ownership
         let rx = mem::replace(&mut self.rx, None).expect("BT sequence rx must be set");
+        let rx_expand =
+            mem::replace(&mut self.rx_expand, None).expect("BT sequence rx must be set");
         futures.push(Self::run_listen_parent(rx).boxed());
+        futures.push(Self::run_listen_expansion(rx_expand).boxed());
 
         loop {
             let (response, _, rem_futures) = select_all(futures).await; // Listen out all actions
@@ -181,6 +216,10 @@ impl Sequence {
                 FutResponse::Child(child_index, msg, rx) => {
                     self.process_msg_from_child(msg, child_index)?;
                     futures.push(NodeHandle::run_listen(rx, child_index).boxed());
+                }
+                FutResponse::Expansion(sender, rx_expand) => {
+                    self.expand_tree(sender).await?;
+                    futures.push(Self::run_listen_expansion(rx_expand).boxed());
                 }
             }
         }
@@ -233,8 +272,18 @@ mod tests {
             children.push(MockAction::new(i));
         }
 
-        let (node_tx, _) = channel(100); // Only needed for construction, as a handle is not useful here
-        let mut seq = Sequence::_new(String::from("some name"), children, node_tx, None);
+        let (node_tx, _) = channel(CHANNEL_SIZE); // Only needed for construction, as a handle is not useful here
+        let (_, rx_expand) = mpsc::channel(CHANNEL_SIZE);
+        for child in &children {
+            _ = child.append_childs(vec![]).await.unwrap(); // Activate childs
+        }
+        let mut seq = Sequence::_new(
+            String::from("some name"),
+            children,
+            node_tx,
+            None,
+            Some(rx_expand),
+        );
 
         // When
         let mut futures = seq.extract_futures();

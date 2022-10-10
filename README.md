@@ -5,3 +5,8 @@ This [behavior tree](<https://en.wikipedia.org/wiki/Behavior_tree_(artificial_in
 Some unique decorators have been added. The BlockingAction prevents stopping the specific action, and allows it to finish. The BlockingCheck is a condition that does not fail when no value actor value is set, but instead awaits its first value. Thereafter, it always succeeds.
 
 Conditions and Actions can be implemented using the Evaluator and Executor trait respectively.
+
+**Feature requests**:
+
+- Loop until success / failure
+- Condition without a child that returns success upon succesful evaluation
