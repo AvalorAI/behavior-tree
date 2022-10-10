@@ -2,7 +2,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::{mem, vec};
 use tokio::sync::broadcast::{channel, Receiver, Sender};
-use tokio::time::{sleep, Duration};
 
 use super::node::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 
@@ -168,64 +167,73 @@ impl<T: ActionLogic + Send + Sync + 'static> Node for ActionProcess<T> {
     }
 }
 
-/*
-The Mock action is intended to completely mock all logic of a normal action, but does not execute anything complex.
-*/
+#[cfg(test)]
+pub(crate) mod mocking {
+    /*
+    The Mock action is intended to completely mock all logic of a normal action, but does not execute anything complex.
+    */
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use tokio::time::{sleep, Duration};
 
-pub struct MockAction {
-    name: String,
-}
+    use super::{Action, ActionLogic, BlockingAction};
+    use crate::bt::node::NodeHandle;
 
-impl MockAction {
-    pub fn new(id: i32) -> NodeHandle {
-        Action::new(Self::_new(id))
+    pub struct MockAction {
+        name: String,
     }
 
-    fn _new(id: i32) -> Self {
-        Self {
-            name: id.to_string(),
+    impl MockAction {
+        pub fn new(id: i32) -> NodeHandle {
+            Action::new(Self::_new(id))
+        }
+
+        fn _new(id: i32) -> Self {
+            Self {
+                name: id.to_string(),
+            }
         }
     }
-}
 
-#[async_trait]
-impl ActionLogic for MockAction {
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
+    #[async_trait]
+    impl ActionLogic for MockAction {
+        fn get_name(&self) -> String {
+            self.name.clone()
+        }
 
-    async fn execute(&self) -> Result<bool> {
-        sleep(Duration::from_millis(500)).await;
-        Ok(true)
-    }
-}
-
-// Same for mock blocking
-
-pub struct MockBlockingAction {
-    name: String,
-}
-
-impl MockBlockingAction {
-    pub fn new(id: i32) -> NodeHandle {
-        BlockingAction::new(Self::_new(id))
-    }
-
-    fn _new(id: i32) -> Self {
-        Self {
-            name: id.to_string(),
+        async fn execute(&self) -> Result<bool> {
+            sleep(Duration::from_millis(500)).await;
+            Ok(true)
         }
     }
-}
 
-#[async_trait]
-impl ActionLogic for MockBlockingAction {
-    fn get_name(&self) -> String {
-        self.name.clone()
+    // Same for mock blocking
+
+    pub struct MockBlockingAction {
+        name: String,
     }
 
-    async fn execute(&self) -> Result<bool> {
-        sleep(Duration::from_millis(500)).await;
-        Ok(true)
+    impl MockBlockingAction {
+        pub fn new(id: i32) -> NodeHandle {
+            BlockingAction::new(Self::_new(id))
+        }
+
+        fn _new(id: i32) -> Self {
+            Self {
+                name: id.to_string(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ActionLogic for MockBlockingAction {
+        fn get_name(&self) -> String {
+            self.name.clone()
+        }
+
+        async fn execute(&self) -> Result<bool> {
+            sleep(Duration::from_millis(500)).await;
+            Ok(true)
+        }
     }
 }

@@ -1,13 +1,12 @@
+use actor_model::{ActorError, Handle};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
-use tokio::time::{sleep, Duration};
 
 use super::node::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
-use crate::comms::actors::{ActorError, Handle};
 
 // Any custom (async) evaluator can be made with this trait
 #[async_trait]
@@ -104,7 +103,13 @@ where
         let node = Self::_new(evaluator.clone(), handle, child, node_tx.clone(), node_rx);
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx, node_tx, "Condition", evaluator.get_name(), vec![child_name])
+        NodeHandle::new(
+            tx,
+            node_tx,
+            "Condition",
+            evaluator.get_name(),
+            vec![child_name],
+        )
     }
 
     fn _new(
@@ -132,7 +137,9 @@ where
                         Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
                         Status::Idle => {} // When Idle or succesful, child nodes should never become active
                         Status::Succes => {}
-                        Status::Running => log::warn!("Condition is running while the child is making a start request"),
+                        Status::Running => log::warn!(
+                            "Condition is running while the child is making a start request"
+                        ),
                     }
                 }
             }
@@ -155,7 +162,11 @@ where
     }
 
     fn notify_parent(&mut self, msg: ParentMessage) -> Result<(), NodeError> {
-        log::debug!("Condition {:?} - notify parent: {:?}", self.evaluator.get_name(), msg);
+        log::debug!(
+            "Condition {:?} - notify parent: {:?}",
+            self.evaluator.get_name(),
+            msg
+        );
         self.tx
             .send(msg)
             .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
@@ -163,7 +174,12 @@ where
     }
 
     fn notify_child(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        log::debug!("Condition {:?} - notify child {:?}: {:?}", self.evaluator.get_name(), self.child.name, msg);
+        log::debug!(
+            "Condition {:?} - notify child {:?}: {:?}",
+            self.evaluator.get_name(),
+            self.child.name,
+            msg
+        );
         self.child.send(msg)?;
         Ok(())
     }
@@ -273,7 +289,7 @@ where
                     }
                 }
                 NodeError::PoisonError(e) => poison_parent(poison_tx, name, e), // Propagate error
-                err => poison_parent(poison_tx, name, err.to_string()),         // If any error in itself, poison parent
+                err => poison_parent(poison_tx, name, err.to_string()), // If any error in itself, poison parent
             },
             Ok(_) => {} // Should never occur
         }
@@ -287,33 +303,44 @@ fn poison_parent(poison_tx: Sender<ParentMessage>, name: String, err: String) {
     }
 }
 
-// A mock condition to showcase the usage of some arbitrary async work in the condition evaluation
+#[cfg(test)]
+pub(crate) mod mocking {
+    // A mock condition to showcase the usage of some arbitrary async work in the condition evaluation
 
-#[derive(Clone, Debug)]
-pub struct MockAsyncCondition {
-    name: String,
-}
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use tokio::time::{sleep, Duration};
 
-impl MockAsyncCondition {
-    pub fn new() -> Self {
-        Self {
-            name: "Mock async condition".to_string(),
+    use super::Evaluator;
+
+    #[derive(Clone, Debug)]
+    pub struct MockAsyncCondition {
+        name: String,
+    }
+
+    #[cfg(test)]
+    impl MockAsyncCondition {
+        pub fn new() -> Self {
+            Self {
+                name: "Mock async condition".to_string(),
+            }
+        }
+
+        async fn some_async_function(&self) {
+            sleep(Duration::from_millis(500)).await;
         }
     }
 
-    async fn some_async_function(&self) {
-        sleep(Duration::from_millis(500)).await;
-    }
-}
+    #[cfg(test)]
+    #[async_trait]
+    impl Evaluator<i32> for MockAsyncCondition {
+        fn get_name(&self) -> String {
+            self.name.clone()
+        }
 
-#[async_trait]
-impl Evaluator<i32> for MockAsyncCondition {
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
-
-    async fn evaluate(&self, _val: i32) -> Result<bool> {
-        self.some_async_function().await;
-        Ok(true)
+        async fn evaluate(&self, _val: i32) -> Result<bool> {
+            self.some_async_function().await;
+            Ok(true)
+        }
     }
 }

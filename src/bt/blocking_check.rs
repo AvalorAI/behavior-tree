@@ -1,3 +1,4 @@
+use actor_model::{ActorError, Handle};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -5,7 +6,6 @@ use tokio::sync::broadcast::{channel, Receiver, Sender};
 
 use super::node::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
-use crate::comms::actors::{ActorError, Handle};
 
 pub struct BlockingCheck<V>
 where
@@ -23,7 +23,11 @@ impl<V> BlockingCheck<V>
 where
     V: Clone + Debug + Send + Sync + Clone + 'static,
 {
-    pub fn new<S: Into<String> + Clone>(name: S, handle: Handle<V>, child: NodeHandle) -> NodeHandle {
+    pub fn new<S: Into<String> + Clone>(
+        name: S,
+        handle: Handle<V>,
+        child: NodeHandle,
+    ) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
 
@@ -60,7 +64,9 @@ where
                     Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
                     Status::Idle => {} // When Idle or succesful, child nodes should never become active
                     Status::Succes => {}
-                    Status::Running => log::warn!("Condition is running while the child is making a start request"),
+                    Status::Running => {
+                        log::warn!("Condition is running while the child is making a start request")
+                    }
                 }
             }
             ParentMessage::Status(status) => match status {
@@ -90,7 +96,12 @@ where
     }
 
     fn notify_child(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        log::debug!("BlockingCheck {:?} - notify child {:?}: {:?}", self.name, self.child.name, msg);
+        log::debug!(
+            "BlockingCheck {:?} - notify child {:?}: {:?}",
+            self.name,
+            self.child.name,
+            msg
+        );
         self.child.send(msg)?;
         Ok(())
     }
@@ -184,7 +195,7 @@ where
                     }
                 }
                 NodeError::PoisonError(e) => poison_parent(poison_tx, name, e), // Propagate error
-                err => poison_parent(poison_tx, name, err.to_string()),         // If any error in itself, poison parent
+                err => poison_parent(poison_tx, name, err.to_string()), // If any error in itself, poison parent
             },
             Ok(_) => {} // Should never occur
         }

@@ -3,9 +3,7 @@ use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
 use tokio::sync::broadcast::{Receiver, Sender};
 use thiserror::Error;
-
-use crate::comms::actors::ActorError;
-
+use actor_model::ActorError;
 
 #[derive(Debug)]
 pub struct NodeHandle {
