@@ -2,11 +2,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::{mem, vec};
 use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::time::{sleep, Duration};
 
 use super::node::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 
 #[async_trait]
-pub trait ActionLogic {
+pub trait Executor {
     fn get_name(&self) -> String;
 
     async fn execute(&self) -> Result<bool>;
@@ -18,7 +19,7 @@ pub struct Action {}
 impl Action {
     pub fn new<T>(inner: T) -> NodeHandle
     where
-        T: ActionLogic + Send + Sync + 'static,
+        T: Executor + Send + Sync + 'static,
     {
         ActionProcess::new(inner, false)
     }
@@ -29,7 +30,7 @@ pub struct BlockingAction {}
 impl BlockingAction {
     pub fn new<T>(inner: T) -> NodeHandle
     where
-        T: ActionLogic + Send + Sync + 'static,
+        T: Executor + Send + Sync + 'static,
     {
         ActionProcess::new(inner, true)
     }
@@ -37,7 +38,7 @@ impl BlockingAction {
 
 struct ActionProcess<T>
 where
-    T: ActionLogic + Send + Sync + 'static,
+    T: Executor + Send + Sync + 'static,
 {
     tx: Sender<ParentMessage>,
     rx: Option<Receiver<ChildMessage>>,
@@ -48,7 +49,7 @@ where
 
 impl<T> ActionProcess<T>
 where
-    T: ActionLogic + Send + Sync + 'static,
+    T: Executor + Send + Sync + 'static,
 {
     pub fn new(inner: T, blocking: bool) -> NodeHandle {
         let (node_tx, _) = channel(100);
@@ -136,7 +137,7 @@ where
 }
 
 #[async_trait]
-impl<T: ActionLogic + Send + Sync + 'static> Node for ActionProcess<T> {
+impl<T: Executor + Send + Sync + 'static> Node for ActionProcess<T> {
     async fn serve(mut self) {
         let poison_tx = self.tx.clone();
         let name = self.inner.get_name();
@@ -167,6 +168,41 @@ impl<T: ActionLogic + Send + Sync + 'static> Node for ActionProcess<T> {
     }
 }
 
+/*
+Waiting is already pre-implemented for convenience
+*/
+
+pub struct Wait {
+    name: String,
+    secs: u64,
+}
+
+impl Wait {
+    pub fn new(secs: u64) -> NodeHandle {
+        Action::new(Self::_new(secs))
+    }
+
+    fn _new(secs: u64) -> Self {
+        Self {
+            name: "Waiting".to_string(),
+            secs,
+        }
+    }
+}
+
+#[async_trait]
+impl Executor for Wait {
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    async fn execute(&self) -> Result<bool> {
+        sleep(Duration::from_secs(self.secs)).await;
+
+        Ok(true)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod mocking {
     /*
@@ -176,38 +212,44 @@ pub(crate) mod mocking {
     use async_trait::async_trait;
     use tokio::time::{sleep, Duration};
 
-    use super::{Action, ActionLogic, BlockingAction};
+    use super::{Action, BlockingAction, Executor};
     use crate::bt::node::NodeHandle;
 
     pub struct MockAction {
         name: String,
+        succeed: bool,
     }
 
     impl MockAction {
         pub fn new(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id))
+            Action::new(Self::_new(id, true))
         }
 
-        fn _new(id: i32) -> Self {
+        pub fn new_failing(id: i32) -> NodeHandle {
+            Action::new(Self::_new(id, false))
+        }
+
+        fn _new(id: i32, succeed: bool) -> Self {
             Self {
                 name: id.to_string(),
+                succeed,
             }
         }
     }
 
     #[async_trait]
-    impl ActionLogic for MockAction {
+    impl Executor for MockAction {
         fn get_name(&self) -> String {
             self.name.clone()
         }
 
         async fn execute(&self) -> Result<bool> {
             sleep(Duration::from_millis(500)).await;
-            Ok(true)
+            Ok(self.succeed)
         }
     }
 
-    // Same for mock blocking
+    // Same for Mock blocking, which cannot be stopped during execution
 
     pub struct MockBlockingAction {
         name: String,
@@ -226,7 +268,7 @@ pub(crate) mod mocking {
     }
 
     #[async_trait]
-    impl ActionLogic for MockBlockingAction {
+    impl Executor for MockBlockingAction {
         fn get_name(&self) -> String {
             self.name.clone()
         }

@@ -166,6 +166,7 @@ impl BehaviorTree {
 }
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use actor_model::Handle;
     use std::collections::HashMap;
@@ -177,8 +178,7 @@ mod tests {
     };
     use crate::bt::action::mocking::{MockAction, MockBlockingAction};
     use crate::bt::condition::mocking::MockAsyncCondition;
-
-    // TODO add unit test for propagate request start in sequence (two tests: dont when running & do when failed)
+    use crate::logging::load_logger;
 
     // #[tokio::test]
     // #[ignore]
@@ -226,6 +226,38 @@ mod tests {
 
         let mut seq = Sequence::new(vec![action.clone()]);
         assert!(seq.kill().await.is_ok());
+    }
+
+    //      Fb
+    //     /   \
+    //   Seq  Action2
+    //    |
+    //  Cond1
+    //    |
+    // Action1
+    //  Fail cond1, Start Action2, cond1 request start, seq success
+    #[tokio::test]
+    async fn test_sequence_request_start_while_failed() {
+        // Setup
+        let handle = Handle::new_from(-1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, action1);
+        let seq = Sequence::new(vec![cond1]);
+
+        let action2 = MockAction::new_failing(2);
+        let fb = Fallback::new(vec![seq, action2]);
+        let mut bt = BehaviorTree::new(fb);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Succes);
     }
 
     //  Cond1
