@@ -1,5 +1,5 @@
 [package]
-name = "behavior_tree"
+name = "behavior-tree"
 version = "0.1.0"
 edition = "2021"
 
