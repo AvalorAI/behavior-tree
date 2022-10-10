@@ -1,4 +1,2 @@
 /target
 .vscode
-src/*.json
-src/*.xml
