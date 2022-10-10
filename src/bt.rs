@@ -32,8 +32,7 @@ impl BehaviorTree {
 
     // Run continuously
     pub async fn run(&mut self) -> Result<()> {
-        let handles = self.root_node.append_childs(vec![]).await?;
-        self.handles = Some(handles);
+        self.expand_handles().await?;
 
         if let Err(e) = self._run().await {
             log::warn!("BT crashed - {:?} ", e);
@@ -61,16 +60,19 @@ impl BehaviorTree {
         }
     }
 
+    async fn expand_handles(&mut self) -> Result<()> {
+        let handles = self.root_node.append_childs(vec![]).await?;
+        self.handles = Some(handles);
+        Ok(())
+    }
+
     async fn run_once(&mut self) -> Result<Status, NodeError> {
         // Run_once is called directly from testing functions, so doubly check the existance of the handles
         if self.handles.is_none() {
-            self.handles = Some(
-                self.root_node
-                    .append_childs(vec![])
-                    .await
-                    .expect("Expanding the handles failed"),
-                // TODO if this fails, it should not be allowed to exit, because killing cannot be done safely
-            );
+            // TODO if this fails, it should not be allowed to exit, because killing cannot be done safely
+            self.expand_handles()
+                .await
+                .expect("Expanding the handles failed");
         }
 
         self.root_node.send(ChildMessage::Start)?;
@@ -90,15 +92,24 @@ impl BehaviorTree {
         }
     }
 
-    // TODO
-    pub fn export_xml(&self, name: String) -> Result<String> {
+    pub async fn save_xml_export<S: Into<String> + Clone>(&mut self, name: S) -> Result<()> {
+        let file = File::create(format!("bt_{}.xml", name.clone().into()))?;
+        let root = self.export_xml(name).await?;
+        root.write(file)?;
+        Ok(())
+    }
+
+    pub async fn export_xml<S: Into<String> + Clone>(&mut self, name: S) -> Result<XMLElement> {
         // Groot format. See https://github.com/BehaviorTree/Groot
-        let file = File::create(format!("src/c2/bt/bt_{:?}.xml", name))?;
+        if self.handles.is_none() {
+            self.expand_handles().await.expect("Expansion failed");
+        }
+
         let handles = self.handles.as_ref().ok_or(anyhow!("No handles set"))?;
 
         let mut root = XMLElement::new("root");
         root.add_attribute("main_tree_to_execute", "MainTree");
-        let mut tree = XMLElement::new("BehaviorTree");
+        let mut tree = XMLElement::new(name.into());
         tree.add_attribute("ID", "MainTree");
 
         // Start with root node
@@ -109,8 +120,7 @@ impl BehaviorTree {
         tree.add_child(root_element); // Insert custom BT logic
         root.add_child(tree); // Insert in boilerplate
 
-        root.write(file)?;
-        Ok(root.to_string())
+        Ok(root)
     }
 
     fn add_children(
@@ -139,9 +149,17 @@ impl BehaviorTree {
         element
     }
 
-    // TODO
-    pub fn export_json(&self, name: String) -> Result<String> {
-        let file = File::create(format!("src/c2/bt/bt_{:?}.json", name))?;
+    pub async fn save_json_export<S: Into<String> + Clone>(&mut self, name: S) -> Result<()> {
+        let file = File::create(format!("bt_{}.json", name.clone().into()))?;
+        let bt = self.export_json(name).await?;
+        serde_json::to_writer(&file, &bt)?;
+        Ok(())
+    }
+
+    pub async fn export_json<S: Into<String> + Clone>(&mut self, name: S) -> Result<String> {
+        if self.handles.is_none() {
+            self.expand_handles().await.expect("Expansion failed");
+        }
 
         let handles = self.handles.as_ref().ok_or(anyhow!("No handles set"))?;
 
@@ -149,12 +167,11 @@ impl BehaviorTree {
             handles.iter().map(|x| x.get_json()).collect();
 
         let bt = json!({
-            "name": "SPEAR BehaviourTree",
+            "name": name.into(),
             "rootNode": self.root_node.name.clone(),
             "nodes": json!(node_description),
         });
 
-        serde_json::to_writer(&file, &bt)?;
         Ok(bt.to_string())
     }
 }
@@ -174,27 +191,45 @@ mod tests {
     use crate::bt::condition::mocking::MockAsyncCondition;
     use crate::logging::load_logger;
 
-    // #[tokio::test]
-    // #[ignore]
-    // async fn test_export_xml() {
-    //     let blackboard = Blackboard::new();
-    //     let planner = Mcts::setup(blackboard.clone());
-    //     let vehicle_client = MavlinkVehicle::dummy();
-    //     let bt = BTs::Full.load_bt(&blackboard, &planner, &vehicle_client);
-    //     let res = bt.export_xml();
-    //     assert!(res.is_ok())
-    // }
+    fn dummy_bt() -> BehaviorTree {
+        let handle = Handle::new_from(-1);
+        let action1 = MockAction::new(1);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, action1);
+        let seq = Sequence::new(vec![cond1]);
+        let action2 = MockAction::new_failing(2);
+        let fb = Fallback::new(vec![seq, action2]);
+        BehaviorTree::new(fb)
+    }
 
-    // #[tokio::test]
-    // #[ignore]
-    // async fn test_export_json() {
-    //     let blackboard = Blackboard::new();
-    //     let planner = Mcts::setup(blackboard.clone());
-    //     let vehicle_client = MavlinkVehicle::dummy();
-    //     let bt = BTs::Full.load_bt(&blackboard, &planner, &vehicle_client);
-    //     let res = bt.export_json();
-    //     assert!(res.is_ok())
-    // }
+    #[tokio::test]
+    #[ignore]
+    async fn test_save_xml_export() {
+        let mut bt = dummy_bt();
+        let res = bt.save_xml_export("Test_BT").await;
+        assert!(res.is_ok())
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_save_json_export() {
+        let mut bt = dummy_bt();
+        let res = bt.save_json_export("Test_BT").await;
+        assert!(res.is_ok())
+    }
+
+    #[tokio::test]
+    async fn test_export_xml() {
+        let mut bt = dummy_bt();
+        let res = bt.export_xml("Test_BT").await;
+        assert!(res.is_ok())
+    }
+
+    #[tokio::test]
+    async fn test_export_json() {
+        let mut bt = dummy_bt();
+        let res = bt.export_json("Test_BT").await;
+        assert!(res.is_ok())
+    }
 
     #[tokio::test]
     async fn test_killing_nodes() {
