@@ -6,6 +6,7 @@ pub use crate::bt::{
     blocking_check::BlockingCheck,
     condition::{Condition, Evaluator},
     fallback::Fallback,
+    handle::NodeHandle,
     loop_dec::LoopDecorator,
     sequence::Sequence,
 };
