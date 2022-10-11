@@ -165,6 +165,9 @@ impl Sequence {
                                     self.update_status(Status::Succes)?; // The sequence has completed
                                 }
                             }
+                        } else if self.status.is_idle() {
+                            // This occurs when the sequence has been stopped, and is waiting for confirmation
+                            self.update_status(Status::Succes)?; // Confirm success to parent
                         }
                     }
                     Status::Failure => self.update_status(Status::Failure)?,
