@@ -351,7 +351,6 @@ pub(crate) mod mocking {
         name: String,
     }
 
-    #[cfg(test)]
     impl MockAsyncCondition {
         pub fn new() -> Self {
             Self {
@@ -364,7 +363,6 @@ pub(crate) mod mocking {
         }
     }
 
-    #[cfg(test)]
     #[async_trait]
     impl Evaluator<i32> for MockAsyncCondition {
         fn get_name(&self) -> String {
