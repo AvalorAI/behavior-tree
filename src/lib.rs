@@ -4,7 +4,7 @@ pub use crate::bt::BehaviorTree;
 pub use crate::bt::{
     action::{Action, BlockingAction, Executor, Wait},
     blocking_check::BlockingCheck,
-    condition::{Condition, Evaluator},
+    condition::{Condition, Evaluator, OneTimeCondition},
     fallback::Fallback,
     handle::NodeHandle,
     loop_dec::LoopDecorator,

@@ -184,8 +184,11 @@ mod tests {
 
     use super::*;
     use super::{
-        blocking_check::BlockingCheck, condition::Condition, fallback::Fallback,
-        loop_dec::LoopDecorator, sequence::Sequence,
+        blocking_check::BlockingCheck,
+        condition::{Condition, OneTimeCondition},
+        fallback::Fallback,
+        loop_dec::LoopDecorator,
+        sequence::Sequence,
     };
     use crate::bt::action::mocking::{MockAction, MockBlockingAction};
     use crate::bt::condition::mocking::MockAsyncCondition;
@@ -557,6 +560,32 @@ mod tests {
 
         // Then
         assert_eq!(bt.run_once().await.unwrap(), Status::Succes);
+    }
+
+    //      FB
+    //     /   \
+    //  Cond1  Action1
+    //
+    // pass cond1, during action1 fail cond1, pass fb
+    #[tokio::test]
+    async fn test_one_time_condition() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let cond1 = OneTimeCondition::new("1", handle.clone(), |i: i32| i > 0);
+        let fb = Fallback::new(vec![cond1, action1]);
+        let mut bt = BehaviorTree::new(fb);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(-1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Succes);
     }
 
     //      FB

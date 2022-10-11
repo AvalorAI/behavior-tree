@@ -7,6 +7,7 @@ use tokio::sync::{
     broadcast::{channel, Receiver, Sender},
     mpsc, oneshot,
 };
+use tokio::time::{sleep, Duration};
 
 use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
@@ -59,6 +60,28 @@ where
     }
 }
 
+pub struct OneTimeCondition {}
+
+impl OneTimeCondition {
+    pub fn new_from<V, T>(evaluator: T, handle: Handle<V>) -> NodeHandle
+    where
+        T: Evaluator<V> + Clone + Send + Sync + 'static,
+        V: Clone + Debug + Send + Sync + Clone + 'static,
+    {
+        ConditionProcess::new(handle, evaluator, None)
+    }
+
+    pub fn new<V, S, F>(name: S, handle: Handle<V>, function: F) -> NodeHandle
+    where
+        S: Into<String> + Clone,
+        F: Fn(V) -> bool + Sync + Send + Clone + 'static,
+        V: Clone + Debug + Send + Sync + Clone + 'static,
+    {
+        let evaluator = ClosureEvaluator::new(name.into(), function);
+        ConditionProcess::new(handle, evaluator, None)
+    }
+}
+
 pub struct Condition {}
 
 impl Condition {
@@ -67,7 +90,7 @@ impl Condition {
         T: Evaluator<V> + Clone + Send + Sync + 'static,
         V: Clone + Debug + Send + Sync + Clone + 'static,
     {
-        ConditionProcess::new(handle, evaluator, child)
+        ConditionProcess::new(handle, evaluator, Some(child))
     }
 
     pub fn new<V, S, F>(name: S, handle: Handle<V>, function: F, child: NodeHandle) -> NodeHandle
@@ -77,7 +100,7 @@ impl Condition {
         V: Clone + Debug + Send + Sync + Clone + 'static,
     {
         let evaluator = ClosureEvaluator::new(name.into(), function);
-        ConditionProcess::new(handle, evaluator, child)
+        ConditionProcess::new(handle, evaluator, Some(child))
     }
 }
 
@@ -86,7 +109,7 @@ where
     T: Evaluator<V> + Clone + Send + Sync + 'static,
 {
     handle: Handle<V>,
-    child: NodeHandle,
+    child: Option<NodeHandle>,
     tx: Sender<ParentMessage>,
     rx: Receiver<ChildMessage>,
     rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
@@ -99,12 +122,12 @@ where
     T: Evaluator<V> + Clone + Send + Sync + 'static,
     V: Clone + Debug + Send + Sync + Clone + 'static,
 {
-    pub fn new(handle: Handle<V>, evaluator: T, child: NodeHandle) -> NodeHandle {
+    pub fn new(handle: Handle<V>, evaluator: T, child: Option<NodeHandle>) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
         let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
-        let child_name = child.name.clone();
+        let child_name = child.clone().map(|x| x.name.clone());
         let node = Self::_new(
             evaluator.clone(),
             handle,
@@ -121,14 +144,14 @@ where
             node_tx,
             "Condition",
             evaluator.get_name(),
-            vec![child_name],
+            child_name.map_or(vec![], |x| vec![x]),
         )
     }
 
     fn _new(
         evaluator: T,
         handle: Handle<V>,
-        child: NodeHandle,
+        child: Option<NodeHandle>,
         tx: Sender<ParentMessage>,
         rx: Receiver<ChildMessage>,
         rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
@@ -189,13 +212,15 @@ where
     }
 
     fn notify_child(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        log::debug!(
-            "Condition {:?} - notify child {:?}: {:?}",
-            self.evaluator.get_name(),
-            self.child.name,
-            msg
-        );
-        self.child.send(msg)?;
+        if let Some(child) = &self.child {
+            log::debug!(
+                "Condition {:?} - notify child {:?}: {:?}",
+                self.evaluator.get_name(),
+                child.name,
+                msg
+            );
+            child.send(msg)?;
+        }
         Ok(())
     }
 
@@ -241,13 +266,17 @@ where
         if self.status.is_running() {
             self.notify_child(ChildMessage::Stop)?; // Stop child
 
-            // Wait until stopping confirmed
-            loop {
-                match self.child.listen().await? {
-                    ParentMessage::Status(Status::Failure) => return Ok(Status::Failure),
-                    ParentMessage::Status(Status::Succes) => return Ok(Status::Succes),
-                    _ => log::warn!("Invalid message received from child when stopping"),
+            if let Some(child) = &mut self.child {
+                // Wait until stopping confirmed
+                loop {
+                    match child.listen().await? {
+                        ParentMessage::Status(Status::Failure) => return Ok(Status::Failure),
+                        ParentMessage::Status(Status::Succes) => return Ok(Status::Succes),
+                        _ => log::warn!("Invalid message received from child when stopping"),
+                    }
                 }
+            } else {
+                return Ok(Status::Succes); // When no child is present, stopping succeeds immediately
             }
         }
         Ok(Status::Failure) // Default failure to parent to prevent blocking
@@ -274,16 +303,31 @@ where
         sender: oneshot::Sender<Vec<NodeHandle>>,
     ) -> Result<(), NodeError> {
         log::debug!("Condition {:?} expanding tree", self.evaluator.get_name());
-        let mut child_handles = self
-            .child
-            .append_childs(vec![])
-            .await
-            .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
-        child_handles.append(&mut vec![self.child.clone()]);
+        let child_handles = if let Some(child) = &self.child {
+            let mut child_handles = child
+                .append_childs(vec![])
+                .await
+                .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+            child_handles.append(&mut vec![child.clone()]);
+            child_handles
+        } else {
+            vec![]
+        };
+
         sender
             .send(child_handles)
             .map_err(|_| NodeError::TokioBroadcastSendError("The oneshot failed".to_string()))?;
         Ok(())
+    }
+
+    async fn listen_to_child(child: &mut Option<NodeHandle>) -> Result<ParentMessage, NodeError> {
+        if let Some(child) = child {
+            child.listen().await
+        } else {
+            loop {
+                sleep(Duration::from_secs(10)).await; // wait until mavlink values received}
+            }
+        }
     }
 
     async fn _serve(mut self) -> Result<(), NodeError> {
@@ -291,7 +335,7 @@ where
         loop {
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
-                Ok(msg) = self.child.listen() => self.process_msg_from_child(msg).await?,
+                Ok(msg) = ConditionProcess::<V, T>::listen_to_child(&mut self.child) => self.process_msg_from_child(msg).await?,
                 Ok(val) = val_rx.recv() => self.process_incoming_val(val).await?,
                 Some(msg) = self.rx_expand.recv() => self.expand_tree(msg).await?,
                 else => log::warn!("Only invalid messages received"),
