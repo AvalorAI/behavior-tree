@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use serde_json::json;
+use serde_json::{json, Value};
 use simple_xml_builder::XMLElement;
 use std::fs::File;
 use tokio::time::{sleep, Duration};
@@ -61,7 +61,8 @@ impl BehaviorTree {
     }
 
     async fn expand_handles(&mut self) -> Result<()> {
-        let handles = self.root_node.append_childs(vec![]).await?;
+        let mut handles = self.root_node.append_childs(vec![]).await?;
+        handles.push(self.root_node.clone());
         self.handles = Some(handles);
         Ok(())
     }
@@ -93,7 +94,7 @@ impl BehaviorTree {
     }
 
     pub async fn save_xml_export<S: Into<String> + Clone>(&mut self, name: S) -> Result<()> {
-        let file = File::create(format!("bt_{}.xml", name.clone().into()))?;
+        let file = File::create(format!("{}.xml", name.clone().into()))?;
         let root = self.export_xml(name).await?;
         root.write(file)?;
         Ok(())
@@ -150,13 +151,13 @@ impl BehaviorTree {
     }
 
     pub async fn save_json_export<S: Into<String> + Clone>(&mut self, name: S) -> Result<()> {
-        let file = File::create(format!("bt_{}.json", name.clone().into()))?;
+        let file = File::create(format!("{}.json", name.clone().into()))?;
         let bt = self.export_json(name).await?;
         serde_json::to_writer(&file, &bt)?;
         Ok(())
     }
 
-    pub async fn export_json<S: Into<String> + Clone>(&mut self, name: S) -> Result<String> {
+    pub async fn export_json<S: Into<String> + Clone>(&mut self, name: S) -> Result<Value> {
         if self.handles.is_none() {
             self.expand_handles().await.expect("Expansion failed");
         }
@@ -172,7 +173,7 @@ impl BehaviorTree {
             "nodes": json!(node_description),
         });
 
-        Ok(bt.to_string())
+        Ok(bt)
     }
 }
 
@@ -197,7 +198,7 @@ mod tests {
     fn dummy_bt() -> BehaviorTree {
         let handle = Handle::new_from(-1);
         let action1 = MockAction::new(1);
-        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, action1);
+        let cond1 = Condition::new("cond1", handle.clone(), |i: i32| i > 0, action1);
         let seq = Sequence::new(vec![cond1]);
         let action2 = MockAction::new_failing(2);
         let fb = Fallback::new(vec![seq, action2]);
