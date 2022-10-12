@@ -45,7 +45,7 @@ impl Sequence {
         let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_names = children.iter().map(|x| x.name.clone()).collect();
-        let child_ids = children.iter().map(|x| x.name.clone()).collect();
+        let child_ids = children.iter().map(|x| x.id.clone()).collect();
         let node = Self::_new(
             name.clone(),
             children,
