@@ -128,6 +128,7 @@ where
         let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_name = child.clone().map(|x| x.name.clone());
+        let child_id = child.clone().map(|x| x.id.clone());
         let node = Self::_new(
             evaluator.clone(),
             handle,
@@ -145,6 +146,7 @@ where
             "Condition",
             evaluator.get_name(),
             child_name.map_or(vec![], |x| vec![x]),
+            child_id.map_or(vec![], |x| vec![x]),
         )
     }
 

@@ -47,6 +47,7 @@ impl Fallback {
         let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_names = children.iter().map(|x| x.name.clone()).collect();
+        let child_ids = children.iter().map(|x| x.name.clone()).collect();
         let node = Self::_new(
             name.clone(),
             children,
@@ -56,7 +57,15 @@ impl Fallback {
         );
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx_prior, tx, node_tx, "Fallback", name, child_names)
+        NodeHandle::new(
+            tx_prior,
+            tx,
+            node_tx,
+            "Fallback",
+            name,
+            child_names,
+            child_ids,
+        )
     }
 
     fn _new(

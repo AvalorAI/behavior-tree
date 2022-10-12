@@ -4,12 +4,16 @@ use simple_xml_builder::XMLElement;
 use tokio::sync::{broadcast::{Receiver, Sender}, oneshot, mpsc};
 use thiserror::Error;
 use actor_model::ActorError;
+use rand::{thread_rng, Rng};
+use rand::distributions::Alphanumeric;
 
 #[derive(Debug)]
 pub struct NodeHandle {
     pub element: String,
     pub name: String,
+    pub id: String,
     pub children_names: Vec<String>,
+    pub children_ids: Vec<String>,
     tx_prior: mpsc::Sender<oneshot::Sender<Vec<NodeHandle>>>, // This handle is used to expand the tree to a vector 
     tx: Sender<ChildMessage>, // This handle is held by a parent, so it can send child messages
     rx: Receiver<ParentMessage>, // The parent can receive messages from its child, so can listen to the handle for messages
@@ -25,7 +29,9 @@ impl Clone for NodeHandle {
             tx_child: self.tx_child.clone(),
             element: self.element.clone(),
             name: self.name.clone(),
+            id: self.id.clone(),
             children_names: self.children_names.clone(),
+            children_ids: self.children_ids.clone(),
         }
     }
 }
@@ -38,6 +44,7 @@ impl NodeHandle {
         element: S,
         name: T,
         children_names: Vec<String>,
+        children_ids: Vec<String>
     ) -> NodeHandle
     where
         S: Into<String>,
@@ -50,7 +57,9 @@ impl NodeHandle {
             tx_child,
             element: element.into(),
             name: name.into(),
+            id: generate_id(),
             children_names,
+            children_ids,
         }
     }
 
@@ -115,11 +124,13 @@ impl NodeHandle {
     pub fn get_json(&self) -> serde_json::value::Value {
         if !self.children_names.is_empty() {
             serde_json::json!({ 
+                "id": self.id.clone(),
                 "name": self.name.clone(),
                 "type": self.element.clone(),
                 "children": self.children_names.clone()})
         } else {
             serde_json::json!({ 
+                "id": self.id.clone(),
                 "name": self.name.clone(),
                 "type": self.element.clone()})
         }
@@ -130,6 +141,13 @@ pub enum FutResponse {
     Parent(ChildMessage, Receiver<ChildMessage>),
     Child(usize, ParentMessage, Receiver<ParentMessage>),
     Expansion(oneshot::Sender<Vec<NodeHandle>>, mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>)
+}
+pub fn generate_id() -> String {
+    thread_rng()
+    .sample_iter(&Alphanumeric)
+    .take(15)
+    .map(char::from)
+    .collect()
 }
 
 #[async_trait]

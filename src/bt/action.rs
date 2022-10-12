@@ -64,7 +64,7 @@ where
         let node = Self::_new(node_tx.clone(), node_rx, rx_expand, inner, blocking);
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx_prior, tx, node_tx, "Action", name, vec![])
+        NodeHandle::new(tx_prior, tx, node_tx, "Action", name, vec![], vec![])
     }
 
     fn _new(

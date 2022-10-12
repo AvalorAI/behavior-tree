@@ -30,6 +30,7 @@ impl LoopDecorator {
         let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_name = child.name.clone();
+        let child_id = child.id.clone();
         let node = Self::_new(
             name.clone().into(),
             child,
@@ -40,7 +41,15 @@ impl LoopDecorator {
         );
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx_prior, tx, node_tx, "Decorator", name, vec![child_name])
+        NodeHandle::new(
+            tx_prior,
+            tx,
+            node_tx,
+            "Decorator",
+            name,
+            vec![child_name],
+            vec![child_id],
+        )
     }
 
     fn _new(
