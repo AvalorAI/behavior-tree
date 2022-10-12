@@ -127,7 +127,7 @@ impl NodeHandle {
                 "id": self.id.clone(),
                 "name": self.name.clone(),
                 "type": self.element.clone(),
-                "children": self.children_names.clone()})
+                "children": self.children_ids.clone()})
         } else {
             serde_json::json!({ 
                 "id": self.id.clone(),
