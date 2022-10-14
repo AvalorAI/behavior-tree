@@ -9,4 +9,5 @@ Conditions and Actions can be implemented using the Evaluator and Executor trait
 **Feature requests**:
 
 - Loop until success / failure
-- Condition without a child that returns success upon succesful evaluation
+- Subscribe to all events
+- General node type composing overlapping code

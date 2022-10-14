@@ -4,10 +4,7 @@ use actor_model::{ActorError, Handle};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
-use tokio::sync::{
-    broadcast::{channel, Receiver, Sender},
-    mpsc, oneshot,
-};
+use tokio::sync::broadcast::{channel, Receiver, Sender};
 
 pub struct BlockingCheck<V>
 where
@@ -18,7 +15,6 @@ where
     child: NodeHandle,
     tx: Sender<ParentMessage>,
     rx: Receiver<ChildMessage>,
-    rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
     status: Status,
 }
 
@@ -29,32 +25,25 @@ where
     pub fn new<S: Into<String> + Clone>(
         name: S,
         handle: Handle<V>,
-        child: NodeHandle,
+        mut child: NodeHandle,
     ) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
-        let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let child_name = child.name.clone();
         let child_id = child.id.clone();
-        let node = Self::_new(
-            name.clone().into(),
-            handle,
-            child,
-            node_tx.clone(),
-            node_rx,
-            rx_expand,
-        );
+        let handles = child.take_handles();
+        let node = Self::_new(name.clone().into(), handle, child, node_tx.clone(), node_rx);
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(
-            tx_prior,
             tx,
             node_tx,
             "Decorator",
             name,
             vec![child_name],
             vec![child_id],
+            handles,
         )
     }
 
@@ -64,7 +53,6 @@ where
         child: NodeHandle,
         tx: Sender<ParentMessage>,
         rx: Receiver<ChildMessage>,
-        rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
     ) -> Self {
         Self {
             name,
@@ -72,7 +60,6 @@ where
             child,
             tx,
             rx,
-            rx_expand,
             status: Status::Idle,
         }
     }
@@ -185,29 +172,11 @@ where
         }
     }
 
-    async fn expand_tree(
-        &mut self,
-        sender: oneshot::Sender<Vec<NodeHandle>>,
-    ) -> Result<(), NodeError> {
-        log::debug!("BlockingCheck {:?} expanding tree", self.name.clone());
-        let mut child_handles = self
-            .child
-            .append_childs(vec![])
-            .await
-            .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
-        child_handles.append(&mut vec![self.child.clone()]);
-        sender
-            .send(child_handles)
-            .map_err(|_| NodeError::TokioBroadcastSendError("The oneshot failed".to_string()))?;
-        Ok(())
-    }
-
     async fn _serve(mut self) -> Result<(), NodeError> {
         loop {
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
                 Ok(msg) = self.child.listen() => self.process_msg_from_child(msg).await?,
-                Some(msg) = self.rx_expand.recv() => self.expand_tree(msg).await?,
                 else => log::warn!("Only invalid messages received"),
             };
         }

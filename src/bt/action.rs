@@ -1,9 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::{
-    broadcast::{channel, Receiver, Sender},
-    mpsc, oneshot,
-};
+use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
 use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
@@ -45,7 +42,6 @@ where
 {
     tx: Sender<ParentMessage>,
     rx: Receiver<ChildMessage>,
-    rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
     blocking: bool,
     status: Status,
     inner: T,
@@ -58,26 +54,23 @@ where
     pub fn new(inner: T, blocking: bool) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
-        let (tx_prior, rx_expand) = mpsc::channel(CHANNEL_SIZE);
 
         let name = inner.get_name();
-        let node = Self::_new(node_tx.clone(), node_rx, rx_expand, inner, blocking);
+        let node = Self::_new(node_tx.clone(), node_rx, inner, blocking);
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx_prior, tx, node_tx, "Action", name, vec![], vec![])
+        NodeHandle::new(tx, node_tx, "Action", name, vec![], vec![], vec![])
     }
 
     fn _new(
         tx: Sender<ParentMessage>,
         rx: Receiver<ChildMessage>,
-        rx_expand: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>,
         inner: T,
         blocking: bool,
     ) -> Self {
         Self {
             tx,
             rx,
-            rx_expand,
             blocking,
             status: Status::Idle,
             inner,
@@ -117,18 +110,6 @@ where
         Ok(())
     }
 
-    async fn expand_tree(
-        &mut self,
-        sender: oneshot::Sender<Vec<NodeHandle>>,
-    ) -> Result<(), NodeError> {
-        log::debug!("Action {:?} expanding tree", self.inner.get_name());
-        let child_handles = vec![];
-        sender
-            .send(child_handles)
-            .map_err(|_| NodeError::TokioBroadcastSendError("The oneshot failed".to_string()))?;
-        Ok(())
-    }
-
     async fn execute(inner: &T, is_running: bool) -> Result<bool, NodeError> {
         if is_running {
             Ok(inner
@@ -150,7 +131,6 @@ where
                     true => self.update_status(Status::Succes).await?,
                     false => self.update_status(Status::Failure).await?
                 },
-                Some(msg) = self.rx_expand.recv() => self.expand_tree(msg).await?,
                 else => log::warn!("Only invalid messages received"),
             }
         }

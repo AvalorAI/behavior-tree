@@ -1,11 +1,11 @@
 use anyhow::{Result};
 use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
-use tokio::sync::{broadcast::{Receiver, Sender}, oneshot, mpsc};
+use tokio::sync::{broadcast::{Receiver, Sender}};
 use thiserror::Error;
 use actor_model::ActorError;
-use rand::{thread_rng, Rng};
-use rand::distributions::Alphanumeric;
+use std::mem;
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct NodeHandle {
@@ -14,7 +14,7 @@ pub struct NodeHandle {
     pub id: String,
     pub children_names: Vec<String>,
     pub children_ids: Vec<String>,
-    tx_prior: mpsc::Sender<oneshot::Sender<Vec<NodeHandle>>>, // This handle is used to expand the tree to a vector 
+    handles: Vec<NodeHandle>,
     tx: Sender<ChildMessage>, // This handle is held by a parent, so it can send child messages
     rx: Receiver<ParentMessage>, // The parent can receive messages from its child, so can listen to the handle for messages
     tx_child: Sender<ParentMessage>, // It holds a clone of the sender of the child, so it can call subscribe for new receivers when cloning the struct
@@ -24,12 +24,12 @@ impl Clone for NodeHandle {
     fn clone(&self) -> NodeHandle {
         Self {
             rx: self.tx_child.subscribe(), // An rx cannot be cloned, but it can be created by subscribing to the transmitter
-            tx_prior: self.tx_prior.clone(),
             tx: self.tx.clone(),
             tx_child: self.tx_child.clone(),
             element: self.element.clone(),
             name: self.name.clone(),
             id: self.id.clone(),
+            handles: self.handles.clone(),
             children_names: self.children_names.clone(),
             children_ids: self.children_ids.clone(),
         }
@@ -38,26 +38,26 @@ impl Clone for NodeHandle {
 
 impl NodeHandle {
     pub fn new<S, T>(
-        tx_prior: mpsc::Sender<oneshot::Sender<Vec<NodeHandle>>>,
         tx: Sender<ChildMessage>,
         tx_child: Sender<ParentMessage>,
         element: S,
         name: T,
         children_names: Vec<String>,
-        children_ids: Vec<String>
+        children_ids: Vec<String>,
+        handles: Vec<NodeHandle>,
     ) -> NodeHandle
     where
         S: Into<String>,
         T: Into<String>,
     {
         Self {
-            tx_prior,
             tx,
             rx: tx_child.subscribe(),
             tx_child,
             element: element.into(),
             name: name.into(),
-            id: generate_id(),
+            id: Uuid::now_v1(&[1, 2, 3, 4, 5, 6]).to_string(),
+            handles,
             children_names,
             children_ids,
         }
@@ -76,6 +76,12 @@ impl NodeHandle {
             log::debug!("{} {:?} already exited", self.element, self.name);
         }
         Ok(())  
+    }
+
+    pub fn take_handles(&mut self) -> Vec<NodeHandle>{
+        let mut handles = mem::replace(&mut self.handles, vec![]);
+        handles.push(self.clone());
+        handles
     }
 
     pub fn send(&self, msg: ChildMessage) -> Result<(), NodeError> {
@@ -100,15 +106,6 @@ impl NodeHandle {
     async fn _listen(rx: &mut Receiver<ParentMessage>) -> Result<ParentMessage, NodeError> {
         Ok(rx.recv().await?)
     }
-
-    pub async fn append_childs(&self, mut handles: Vec<NodeHandle>) -> Result<Vec<NodeHandle>>{
-        let (respond_to, get_result) = oneshot::channel();
-        self.tx_prior.send(respond_to).await?; 
-        let mut child_handles = get_result.await?;
-        handles.append(&mut child_handles);
-        Ok(handles)
-    }
-
 
     pub fn get_xml(&self) -> XMLElement {
        let element = if self.element == "Condition" {
@@ -140,15 +137,8 @@ impl NodeHandle {
 pub enum FutResponse {
     Parent(ChildMessage, Receiver<ChildMessage>),
     Child(usize, ParentMessage, Receiver<ParentMessage>),
-    Expansion(oneshot::Sender<Vec<NodeHandle>>, mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>)
 }
-pub fn generate_id() -> String {
-    thread_rng()
-    .sample_iter(&Alphanumeric)
-    .take(15)
-    .map(char::from)
-    .collect()
-}
+
 
 #[async_trait]
 pub trait Node: Sync + Send {
@@ -158,11 +148,6 @@ pub trait Node: Sync + Send {
     async fn run_listen_parent(mut rx: Receiver<ChildMessage>) -> Result<FutResponse, NodeError> {
         let msg = rx.recv().await?;
         Ok(FutResponse::Parent(msg, rx))
-    }
-
-    async fn run_listen_expansion(mut rx: mpsc::Receiver<oneshot::Sender<Vec<NodeHandle>>>) -> Result<FutResponse, NodeError> {
-        let msg = rx.recv().await.ok_or(NodeError::TokioRecvError)?;
-        Ok(FutResponse::Expansion(msg, rx))
     }
 
 }
