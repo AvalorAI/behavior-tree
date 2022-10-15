@@ -22,11 +22,7 @@ impl<V> BlockingCheck<V>
 where
     V: Clone + Debug + Send + Sync + Clone + 'static,
 {
-    pub fn new<S: Into<String> + Clone>(
-        name: S,
-        handle: Handle<V>,
-        mut child: NodeHandle,
-    ) -> NodeHandle {
+    pub fn new<S: Into<String> + Clone>(name: S, handle: Handle<V>, mut child: NodeHandle) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
 
@@ -36,15 +32,7 @@ where
         let node = Self::_new(name.clone().into(), handle, child, node_tx.clone(), node_rx);
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(
-            tx,
-            node_tx,
-            "Decorator",
-            name,
-            vec![child_name],
-            vec![child_id],
-            handles,
-        )
+        NodeHandle::new(tx, node_tx, "Decorator", name, vec![child_name], vec![child_id], handles)
     }
 
     fn _new(
@@ -105,12 +93,7 @@ where
     }
 
     fn notify_child(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        log::debug!(
-            "BlockingCheck {:?} - notify child {:?}: {:?}",
-            self.name,
-            self.child.name,
-            msg
-        );
+        log::debug!("BlockingCheck {:?} - notify child {:?}: {:?}", self.name, self.child.name, msg);
         self.child.send(msg)?;
         Ok(())
     }
@@ -204,7 +187,7 @@ where
                     }
                 }
                 NodeError::PoisonError(e) => poison_parent(poison_tx, name, e), // Propagate error
-                err => poison_parent(poison_tx, name, err.to_string()), // If any error in itself, poison parent
+                err => poison_parent(poison_tx, name, err.to_string()),         // If any error in itself, poison parent
             },
             Ok(_) => {} // Should never occur
         }

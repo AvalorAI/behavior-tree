@@ -2,44 +2,69 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use simple_xml_builder::XMLElement;
 use std::fs::File;
-use tokio::time::{sleep, Duration};
+use std::mem;
+use tokio::{
+    sync::mpsc::{channel, Receiver, Sender},
+    time::{sleep, Duration},
+};
 
-use self::handle::NodeError;
-use handle::{ChildMessage, NodeHandle, ParentMessage, Status};
+use handle::{ChildMessage, NodeError, NodeHandle, ParentMessage, Status};
+use listener::{Listener, Update};
 
 const CHANNEL_SIZE: usize = 20;
+const BT_LOOP_TIME: u64 = 1000; // [ms]
 
 pub mod action;
 pub mod blocking_check;
 pub mod condition;
 pub mod fallback;
 pub mod handle;
+pub mod listener;
 pub mod loop_dec;
 pub mod sequence;
 
 pub struct BehaviorTree {
     pub root_node: NodeHandle,
     pub handles: Vec<NodeHandle>,
+    tx: Sender<Update>,
+    rx: Option<Receiver<Update>>,
 }
 
 impl BehaviorTree {
     pub fn new(mut root_node: NodeHandle) -> Self {
         let handles = root_node.take_handles();
-        BehaviorTree::verify_unique_ids(&handles).expect("UUIDs appear non-unique!"); // Should not be possible
-        Self { root_node, handles }
+        // Non-unique UUIDs should not be possible, but check anyway
+        BehaviorTree::verify_unique_ids(&handles).expect("UUIDs are non-unique!");
+        let (tx, rx) = channel(CHANNEL_SIZE);
+        Self {
+            root_node,
+            handles,
+            tx,
+            rx: Some(rx),
+        }
+    }
+
+    pub fn take_rx(&mut self) -> Result<Receiver<Update>> {
+        mem::replace(&mut self.rx, None).ok_or(anyhow!("Receiver already taken"))
     }
 
     // Run continuously
     pub async fn run(&mut self) -> Result<()> {
-        if let Err(e) = self._run().await {
+        log::debug!("Starting BT from {:?}", self.root_node.name);
+        let mut listener = Listener::new(self.handles.clone(), self.tx.clone());
+
+        let res = tokio::select! {
+            res = listener.run_listeners() => {res}
+            res = self._run() => {res}
+        };
+
+        if let Err(e) = res {
             log::warn!("BT crashed - {:?} ", e);
             for handle in &mut self.handles {
                 log::debug!("Killing {} {:?}", handle.element, handle.name);
                 if let Err(e) = handle.kill().await {
                     log::error!("Killing {:?} failed: {e:?}", handle.name);
-                    return Err(anyhow!(
-                        "Cannot safely rebuild behaviour tree with active nodes: {e:?}"
-                    ));
+                    return Err(anyhow!("Cannot safely rebuild behaviour tree with active nodes: {e:?}"));
                 };
             }
             log::debug!("Killed all nodes succesfully");
@@ -48,11 +73,10 @@ impl BehaviorTree {
     }
 
     async fn _run(&mut self) -> Result<()> {
-        log::debug!("Starting BT from {:?}", self.root_node.name);
         loop {
             let status = self.run_once().await?;
             log::debug!("Exited BT with status: {:?} - restarting again", status);
-            sleep(Duration::from_millis(1000)).await; // wait until mavlink values received
+            sleep(Duration::from_millis(BT_LOOP_TIME)).await;
         }
     }
 
@@ -122,13 +146,7 @@ impl BehaviorTree {
         for child in &children_names {
             let handle = handles
                 .iter()
-                .find_map(|x| {
-                    if x.name == *child {
-                        Some(x.clone())
-                    } else {
-                        None
-                    }
-                })
+                .find_map(|x| if x.name == *child { Some(x.clone()) } else { None })
                 .expect("A child was not present in the handles!");
 
             let el_base = handle.get_xml();
@@ -147,8 +165,7 @@ impl BehaviorTree {
     }
 
     pub async fn export_json<S: Into<String> + Clone>(&mut self, name: S) -> Result<Value> {
-        let node_description: Vec<serde_json::value::Value> =
-            self.handles.iter().map(|x| x.get_json()).collect();
+        let node_description: Vec<serde_json::value::Value> = self.handles.iter().map(|x| x.get_json()).collect();
 
         let bt = json!({
             "name": name.into(),
@@ -177,6 +194,7 @@ mod tests {
     use crate::bt::action::mocking::{MockAction, MockBlockingAction};
     use crate::bt::condition::mocking::MockAsyncCondition;
     use crate::logging::load_logger;
+    use listener::OuterStatus;
 
     async fn dummy_bt() -> BehaviorTree {
         let handle = Handle::new_from(-1);
@@ -300,6 +318,46 @@ mod tests {
 
         // Then
         assert_eq!(res.unwrap(), Status::Succes);
+    }
+
+    //  Cond1
+    //    |
+    // Action1
+    #[tokio::test]
+    async fn test_listen_rx() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let cond1 = Condition::new("1", handle.clone(), |x| x > 0, action1);
+        let mut bt = BehaviorTree::new(cond1);
+        bt.run_once().await.unwrap();
+
+        // Note that because the whole tree is run, it should not be allowed to repeat
+        tokio::select! {
+            res = bt.run() => {res.unwrap();}
+            _ = async {
+                sleep(Duration::from_millis(1000)).await;
+            } => {}
+        };
+
+        // Then
+        let mut rx = bt.take_rx().unwrap();
+        let goal_updates = vec![
+            OuterStatus::Running,
+            OuterStatus::Running,
+            OuterStatus::Succes,
+            OuterStatus::Succes,
+        ];
+        let mut all_updates = vec![];
+        while let Ok(update) = rx.try_recv() {
+            all_updates.push(update.status);
+        }
+
+        for (index, update) in all_updates.iter().enumerate() {
+            assert_eq!(update, &goal_updates[index])
+        }
     }
 
     //  Cond1

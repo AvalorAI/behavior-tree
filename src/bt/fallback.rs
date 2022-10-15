@@ -30,10 +30,7 @@ impl Fallback {
         Self::_init(children, name)
     }
 
-    pub fn new_with_name<S: Into<String> + Clone>(
-        name: S,
-        children: Vec<NodeHandle>,
-    ) -> NodeHandle {
+    pub fn new_with_name<S: Into<String> + Clone>(name: S, children: Vec<NodeHandle>) -> NodeHandle {
         Self::_init(children, name.into())
     }
 
@@ -50,15 +47,7 @@ impl Fallback {
         let node = Self::_new(name.clone(), children, node_tx.clone(), Some(node_rx));
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(
-            tx,
-            node_tx,
-            "Fallback",
-            name,
-            child_names,
-            child_ids,
-            handles,
-        )
+        NodeHandle::new(tx, node_tx, "Fallback", name, child_names, child_ids, handles)
     }
 
     fn _new(
@@ -102,12 +91,7 @@ impl Fallback {
     }
 
     fn notify_child(&mut self, child_index: usize, msg: ChildMessage) -> Result<(), NodeError> {
-        log::debug!(
-            "Fallback {:?} - notify child {:?}: {:?}",
-            self.name,
-            self.children[child_index].name,
-            msg
-        );
+        log::debug!("Fallback {:?} - notify child {:?}: {:?}", self.name, self.children[child_index].name, msg);
         self.children[child_index].send(msg)?;
         Ok(())
     }
@@ -139,11 +123,7 @@ impl Fallback {
         Ok(())
     }
 
-    fn process_msg_from_child(
-        &mut self,
-        msg: ParentMessage,
-        child_index: usize,
-    ) -> Result<(), NodeError> {
+    fn process_msg_from_child(&mut self, msg: ParentMessage, child_index: usize) -> Result<(), NodeError> {
         match msg {
             ParentMessage::RequestStart => {
                 match self.status {
@@ -228,7 +208,7 @@ impl Node for Fallback {
                     }
                 }
                 NodeError::PoisonError(e) => poison_parent(poison_tx, name, e), // Propagate error
-                err => poison_parent(poison_tx, name, err.to_string()), // If any error in itself, poison parent
+                err => poison_parent(poison_tx, name, err.to_string()),         // If any error in itself, poison parent
             },
             Ok(_) => {} // Should never occur
         }
