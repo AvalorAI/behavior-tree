@@ -23,7 +23,7 @@ impl SocketConnector {
     pub fn spawn(socket_url: String, rx: Receiver<Update>, bt_export: Value) -> Result<()> {
         let socket_url = Url::parse(&socket_url)?;
         let connector = SocketConnector::new(socket_url, rx, bt_export);
-        tokio::spawn(async move { connector.serve() }); // Start serving itself
+        tokio::spawn(SocketConnector::serve(connector)); // Start serving itself
         Ok(())
     }
 
@@ -35,9 +35,9 @@ impl SocketConnector {
         }
     }
 
-    async fn serve(mut self) {
-        let (mut writer, mut _reader) = self.wait_for_connect(&self.socket_url).await;
-        writer.run(&mut self.rx, self.bt_export.clone()).await;
+    async fn serve(mut connector: SocketConnector) {
+        let (mut writer, mut _reader) = connector.wait_for_connect(&connector.socket_url).await;
+        writer.run(&mut connector.rx, connector.bt_export.clone()).await;
     }
 
     async fn wait_for_connect(&self, socket_url: &Url) -> (SocketWriter, SocketReader) {

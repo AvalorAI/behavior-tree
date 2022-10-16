@@ -280,7 +280,7 @@ mod tests {
 
         let mut bt = dummy_bt().await;
         bt.connect(format!("ws://{}:{}", "localhost", 4012)).unwrap();
-        sleep(Duration::from_secs(10)).await; // Allow for treabeard to receive messages
+        sleep(Duration::from_secs(1)).await; // Allow for treabeard to receive messages
     }
 
     #[tokio::test]

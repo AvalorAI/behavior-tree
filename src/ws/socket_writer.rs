@@ -22,13 +22,14 @@ impl SocketWriter {
     }
 
     pub async fn run(&mut self, rx: &mut Receiver<Update>, bt_export: Value) {
-        log::info!("Running websocket writer");
+        log::debug!("Running websocket writer");
         let bt_msg = json!({"type": "tree", "value": bt_export}).to_string();
         self.request(bt_msg).await;
-        log::info!("Succesfully sent behavior tree");
+        log::debug!("Sent behavior tree");
         while let Some(update) = rx.recv().await {
             let update_msg = json!({"type": "update", "value": json!(update)}).to_string();
             self.request(update_msg).await;
+            log::debug!("Sent node update");
         }
 
         log::info!("Update receiver became inactive: closing websocket writer");
