@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures::future::select_all;
 use futures::{Future, FutureExt};
+use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use tokio::sync::mpsc::Sender;
 
@@ -65,9 +66,10 @@ impl Listener {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Update {
     pub id: String,
+    #[serde(rename = "status")]
     pub status: OuterStatus,
 }
 
@@ -77,7 +79,7 @@ impl Update {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum OuterStatus {
     Killed,
     Poisonend,

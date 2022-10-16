@@ -1,5 +1,8 @@
 mod bt;
 
+#[cfg(feature = "websocket")]
+mod ws;
+
 pub use crate::bt::BehaviorTree;
 pub use crate::bt::{
     action::{Action, BlockingAction, Executor, Wait},

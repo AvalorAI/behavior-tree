@@ -142,7 +142,7 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "behavior-tree"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "actor-model",
  "anyhow",
@@ -160,6 +160,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tungstenite",
+ "url",
  "uuid",
 ]
 
