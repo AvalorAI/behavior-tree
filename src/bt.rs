@@ -221,6 +221,7 @@ mod tests {
 
     use super::*;
     use super::{
+        action::{Failure, Success},
         blocking_check::BlockingCheck,
         condition::{Condition, OneTimeCondition},
         fallback::Fallback,
@@ -365,6 +366,40 @@ mod tests {
 
         // Then
         assert_eq!(res.unwrap(), Status::Success);
+    }
+
+    //  Cond1
+    //    |
+    // Action1
+    #[tokio::test]
+    async fn test_auto_success() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = Success::new();
+        let cond1 = Condition::new("1", handle.clone(), |x| x > 0, action1);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        // Then
+        assert_eq!(bt.run_once().await.unwrap(), Status::Success);
+    }
+
+    //  Cond1
+    //    |
+    // Action1
+    #[tokio::test]
+    async fn test_auto_failure() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = Failure::new();
+        let cond1 = Condition::new("1", handle.clone(), |x| x > 0, action1);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        // Then
+        assert_eq!(bt.run_once().await.unwrap(), Status::Failure);
     }
 
     //  Cond1

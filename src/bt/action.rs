@@ -174,24 +174,20 @@ impl<T: Executor + Send + Sync + 'static> Node for ActionProcess<T> {
 }
 
 /*
-Waiting is already pre-implemented for convenience
+Some convenience actions are pre-implemented
 */
 
 pub struct Wait {
     name: String,
-    secs: u64,
+    duration: Duration,
 }
 
 impl Wait {
-    pub fn new(secs: u64) -> NodeHandle {
-        Action::new(Self::_new(secs))
-    }
-
-    fn _new(secs: u64) -> Self {
-        Self {
+    pub fn new(duration: Duration) -> NodeHandle {
+        Action::new(Self {
             name: "Waiting".to_string(),
-            secs,
-        }
+            duration,
+        })
     }
 }
 
@@ -202,9 +198,54 @@ impl Executor for Wait {
     }
 
     async fn execute(&mut self) -> Result<bool> {
-        sleep(Duration::from_secs(self.secs)).await;
-
+        sleep(self.duration).await;
         Ok(true)
+    }
+}
+
+pub struct Success {
+    name: String,
+}
+
+impl Success {
+    pub fn new() -> NodeHandle {
+        Action::new(Self {
+            name: "SUCCESS".to_string(),
+        })
+    }
+}
+
+#[async_trait]
+impl Executor for Success {
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    async fn execute(&mut self) -> Result<bool> {
+        Ok(true)
+    }
+}
+
+pub struct Failure {
+    name: String,
+}
+
+impl Failure {
+    pub fn new() -> NodeHandle {
+        Action::new(Self {
+            name: "FAILURE".to_string(),
+        })
+    }
+}
+
+#[async_trait]
+impl Executor for Failure {
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    async fn execute(&mut self) -> Result<bool> {
+        Ok(false)
     }
 }
 
