@@ -346,7 +346,7 @@ mod tests {
     //    |
     // Action1
     //
-    // Cond1 passes, cond2 fails during Action1, BT still succesful
+    // Cond1 passes, cond1 fails during Action1, BT still succesful
     #[tokio::test]
     async fn test_force_action_completion() {
         // Setup
