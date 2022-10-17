@@ -119,7 +119,7 @@ where
             tokio::select! {
                 Ok(msg) =  self.rx.recv() => self.process_msg_from_parent(msg).await?,
                 res = ActionProcess::execute(&self.inner, self.status.is_running()) => match res.map_err(|e| NodeError::ExecutionError(e.to_string()))? {
-                    true => self.update_status(Status::Succes).await?,
+                    true => self.update_status(Status::Success).await?,
                     false => self.update_status(Status::Failure).await?
                 },
                 else => log::warn!("Only invalid messages received"),

@@ -52,13 +52,13 @@ impl LoopDecorator {
                 match self.status {
                     Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
                     Status::Idle => {} // When Idle or succesful, child nodes should never become active
-                    Status::Succes => {}
+                    Status::Success => {}
                     Status::Running => {}
                 }
             }
             ParentMessage::Status(status) => match status {
                 // Start child again upon succes or failure // TODO make this configurable to a loop until succes/ failure
-                Status::Succes => {
+                Status::Success => {
                     sleep(Duration::from_millis(self.pause_millis)).await;
                     self.notify_child(ChildMessage::Start)?
                 }
@@ -121,7 +121,7 @@ impl LoopDecorator {
             loop {
                 match self.child.listen().await? {
                     ParentMessage::Status(Status::Failure) => return Ok(Status::Failure),
-                    ParentMessage::Status(Status::Succes) => return Ok(Status::Succes),
+                    ParentMessage::Status(Status::Success) => return Ok(Status::Success),
                     _ => log::warn!("Invalid message received from child when stopping"),
                 }
             }

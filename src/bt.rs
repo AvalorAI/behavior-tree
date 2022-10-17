@@ -135,7 +135,7 @@ impl BehaviorTree {
         loop {
             match self.root_node.listen().await? {
                 ParentMessage::Status(status) => match status {
-                    Status::Succes => return Ok(status),
+                    Status::Success => return Ok(status),
                     Status::Failure => return Ok(status),
                     _ => {}
                 },
@@ -339,7 +339,7 @@ mod tests {
         res2.unwrap(); // Check for any unsuspected errors
 
         // Then
-        assert_eq!(res.unwrap(), Status::Succes);
+        assert_eq!(res.unwrap(), Status::Success);
     }
 
     //  Cond1
@@ -364,7 +364,7 @@ mod tests {
         res2.unwrap(); // Check for any unsuspected errors
 
         // Then
-        assert_eq!(res.unwrap(), Status::Succes);
+        assert_eq!(res.unwrap(), Status::Success);
     }
 
     //  Cond1
@@ -394,8 +394,8 @@ mod tests {
         let goal_updates = vec![
             OuterStatus::Running,
             OuterStatus::Running,
-            OuterStatus::Succes,
-            OuterStatus::Succes,
+            OuterStatus::Success,
+            OuterStatus::Success,
         ];
         let mut all_updates = vec![];
         while let Ok(update) = rx.try_recv() {
@@ -521,7 +521,7 @@ mod tests {
         };
 
         // Then
-        assert_eq!(res.unwrap().unwrap(), Status::Succes);
+        assert_eq!(res.unwrap().unwrap(), Status::Success);
     }
 
     //  Cond1
@@ -540,7 +540,7 @@ mod tests {
         let mut bt = BehaviorTree::new_test(cond1);
 
         // Then
-        assert_eq!(bt.run_once().await.unwrap(), Status::Succes);
+        assert_eq!(bt.run_once().await.unwrap(), Status::Success);
     }
 
     //  Cond1
@@ -621,7 +621,7 @@ mod tests {
         assert_eq!(bt.handles.len(), 4);
 
         // Then
-        assert_eq!(bt.run_once().await.unwrap(), Status::Succes);
+        assert_eq!(bt.run_once().await.unwrap(), Status::Success);
     }
 
     //      FB
@@ -645,7 +645,7 @@ mod tests {
         assert_eq!(bt.handles.len(), 4);
 
         // Then
-        assert_eq!(bt.run_once().await.unwrap(), Status::Succes);
+        assert_eq!(bt.run_once().await.unwrap(), Status::Success);
     }
 
     //      FB
@@ -671,7 +671,7 @@ mod tests {
         res2.unwrap(); // Check for any unsuspected errors
 
         // Then
-        assert_eq!(res.unwrap(), Status::Succes);
+        assert_eq!(res.unwrap(), Status::Success);
     }
 
     //      FB
@@ -694,7 +694,7 @@ mod tests {
         let mut bt = BehaviorTree::new_test(fb);
 
         // Then
-        assert_eq!(bt.run_once().await.unwrap(), Status::Succes);
+        assert_eq!(bt.run_once().await.unwrap(), Status::Success);
     }
 
     //      Seq
@@ -815,7 +815,7 @@ mod tests {
         res3.unwrap();
 
         // Then
-        assert_eq!(res.unwrap(), Status::Succes);
+        assert_eq!(res.unwrap(), Status::Success);
     }
 
     //      FB
@@ -844,7 +844,7 @@ mod tests {
         res2.unwrap(); // Check for any unsuspected errors
 
         // Then
-        assert_eq!(res.unwrap(), Status::Succes);
+        assert_eq!(res.unwrap(), Status::Success);
     }
 
     //      Seq
@@ -955,7 +955,7 @@ mod tests {
         res3.unwrap();
 
         // Then
-        assert_eq!(res.unwrap(), Status::Succes);
+        assert_eq!(res.unwrap(), Status::Success);
     }
 
     //     Cond1
@@ -1033,6 +1033,6 @@ mod tests {
         res3.unwrap();
 
         // Then
-        assert_eq!(res.unwrap(), Status::Succes);
+        assert_eq!(res.unwrap(), Status::Success);
     }
 }

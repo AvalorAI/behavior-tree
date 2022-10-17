@@ -129,7 +129,7 @@ impl Fallback {
                 match self.status {
                     Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
                     Status::Idle => {} // When Idle or succesful, child nodes should never become active
-                    Status::Succes => {}
+                    Status::Success => {}
                     Status::Running => {
                         if let Some(current_child_index) = self.running_child {
                             if child_index <= current_child_index {
@@ -141,7 +141,7 @@ impl Fallback {
                 }
             }
             ParentMessage::Status(status) => match status {
-                Status::Succes => self.update_status(Status::Succes)?,
+                Status::Success => self.update_status(Status::Success)?,
                 Status::Failure => {
                     if self.status.is_running() {
                         if let Some(child_index) = self.prio_child_on_hold {

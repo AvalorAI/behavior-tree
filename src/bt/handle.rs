@@ -155,7 +155,7 @@ pub trait Node: Sync + Send {
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum Status {
-    Succes,
+    Success,
     Failure,
     Running,
     Idle,
@@ -175,7 +175,7 @@ impl Status {
     }
 
     pub fn is_succes(&self) -> bool {
-        matches!(self, Status::Succes)
+        matches!(self, Status::Success)
     }
 }
 

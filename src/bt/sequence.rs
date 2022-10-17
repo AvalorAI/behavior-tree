@@ -126,13 +126,13 @@ impl Sequence {
                 match self.status {
                     Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
                     Status::Idle => {} // When Idle or succesful, child nodes should never become active
-                    Status::Succes => {}
+                    Status::Success => {}
                     Status::Running => {} // A request start is never valid in a running sequence
                 }
             }
             ParentMessage::Status(status) => {
                 match status {
-                    Status::Succes => {
+                    Status::Success => {
                         if self.status.is_running() {
                             if let Some(current_child_index) = self.running_child {
                                 if child_index != current_child_index {
@@ -142,12 +142,12 @@ impl Sequence {
                                 if current_child_index < (self.children.len() - 1) {
                                     self.start_child(child_index + 1)?; // Start next in sequence
                                 } else {
-                                    self.update_status(Status::Succes)?; // The sequence has completed
+                                    self.update_status(Status::Success)?; // The sequence has completed
                                 }
                             }
                         } else if self.status.is_idle() {
                             // This occurs when the sequence has been stopped, and is waiting for confirmation
-                            self.update_status(Status::Succes)?; // Confirm success to parent
+                            self.update_status(Status::Success)?; // Confirm success to parent
                         }
                     }
                     Status::Failure => self.update_status(Status::Failure)?,
@@ -242,7 +242,7 @@ mod tests {
                 futures = rem_futures;
                 if let FutResponse::Child(child_index, msg, rx) = response.unwrap() {
                     futures.push(NodeHandle::run_listen(rx, child_index).boxed());
-                    if let ParentMessage::Status(Status::Succes) = msg {
+                    if let ParentMessage::Status(Status::Success) = msg {
                         result.push(child_index);
                         break; // Loop over messages received from active child, but only activate next child as soon as a succes is received
                     }

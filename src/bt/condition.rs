@@ -163,13 +163,13 @@ where
                     match self.status {
                         Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
                         Status::Idle => {} // When Idle or succesful, child nodes should never become active
-                        Status::Succes => {}
+                        Status::Success => {}
                         Status::Running => log::warn!("Condition is running while the child is making a start request"),
                     }
                 }
             }
             ParentMessage::Status(status) => match status {
-                Status::Succes => self.update_status(Status::Succes)?,
+                Status::Success => self.update_status(Status::Success)?,
                 Status::Failure => self.update_status(Status::Failure)?,
                 Status::Idle => log::warn!("Unexpected idle status received from child node"),
                 Status::Running => {} // Running status has no effect
@@ -249,12 +249,12 @@ where
                 loop {
                     match child.listen().await? {
                         ParentMessage::Status(Status::Failure) => return Ok(Status::Failure),
-                        ParentMessage::Status(Status::Succes) => return Ok(Status::Succes),
+                        ParentMessage::Status(Status::Success) => return Ok(Status::Success),
                         _ => log::warn!("Invalid message received from child when stopping"),
                     }
                 }
             } else {
-                return Ok(Status::Succes); // When no child is present, stopping succeeds immediately
+                return Ok(Status::Success); // When no child is present, stopping succeeds immediately
             }
         }
         Ok(Status::Failure) // Default failure to parent to prevent blocking

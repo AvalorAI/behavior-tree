@@ -83,7 +83,7 @@ impl Update {
 pub enum OuterStatus {
     Killed,
     Poisonend,
-    Succes,
+    Success,
     Failure,
     Running,
     Idle,
@@ -92,7 +92,7 @@ pub enum OuterStatus {
 impl From<Status> for OuterStatus {
     fn from(status: Status) -> OuterStatus {
         match status {
-            Status::Succes => OuterStatus::Succes,
+            Status::Success => OuterStatus::Success,
             Status::Failure => OuterStatus::Failure,
             Status::Running => OuterStatus::Running,
             Status::Idle => OuterStatus::Idle,
