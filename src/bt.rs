@@ -227,7 +227,7 @@ mod tests {
         loop_dec::LoopDecorator,
         sequence::Sequence,
     };
-    use crate::bt::action::mocking::{MockAction, MockBlockingAction};
+    use crate::bt::action::mocking::{MockAction, MockBlockingAction, MockRunBlockingOnce};
     use crate::bt::condition::mocking::MockAsyncCondition;
     use crate::logging::load_logger;
     use listener::OuterStatus;
@@ -354,6 +354,31 @@ mod tests {
 
         // When
         let action1 = MockBlockingAction::new(1);
+        let cond1 = Condition::new("1", handle.clone(), |x| x > 0, action1);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(-1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Success);
+    }
+
+    //  Cond1
+    //    |
+    // Action1
+    //
+    // Cond1 passes, cond1 fails during Action1, BT still succesful
+    #[tokio::test]
+    async fn test_prohibit_double_blocking_execution() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockRunBlockingOnce::new(1);
         let cond1 = Condition::new("1", handle.clone(), |x| x > 0, action1);
         let mut bt = BehaviorTree::new_test(cond1);
 
