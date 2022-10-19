@@ -202,9 +202,19 @@ where
         Ok(())
     }
 
-    async fn process_incoming_val(&mut self, val: V) -> Result<(), NodeError> {
+    async fn process_incoming_val(&mut self, val: Result<V>) -> Result<(), NodeError> {
         // If its running but the function evaluates to false, then fail
         // If it failed but function evaluates to true, then request start
+
+        // Skip errors
+        let val = match val {
+            Err(e) => {
+                log::debug!("{e:?}");
+                return Ok(());
+            }
+            Ok(v) => v,
+        };
+
         if self.status.is_running() && !self.run_evaluator(val.clone()).await? {
             let status = self.stop_workflow().await?;
             self.update_status(status)?;
@@ -287,12 +297,12 @@ where
     }
 
     async fn _serve(mut self) -> Result<(), NodeError> {
-        let mut val_rx = self.handle.subscribe().await?;
+        let mut cache = self.handle.create_cache();
         loop {
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
                 Ok(msg) = ConditionProcess::<V, T>::listen_to_child(&mut self.child) => self.process_msg_from_child(msg).await?,
-                Ok(val) = val_rx.recv() => self.process_incoming_val(val).await?,
+                val = cache.listen_newest() => self.process_incoming_val(val).await?,
                 else => log::warn!("Only invalid messages received"),
             };
         }

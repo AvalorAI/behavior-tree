@@ -9,5 +9,5 @@ Conditions and Actions can be implemented using the Evaluator and Executor trait
 **Feature requests**:
 
 - Loop until success / failure
-- Subscribe to all events
 - General node type composing overlapping code
+- Remove Ok(msg) from select statement to guarantee that all messages are processed
