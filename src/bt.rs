@@ -289,6 +289,10 @@ mod tests {
         let mut action = MockAction::new(1);
 
         let mut blocking_action = MockBlockingAction::new(1);
+        for _ in 0..CHANNEL_SIZE + 2 {
+            // Ensure that even with overflown channels the killing is succesful
+            blocking_action.send(ChildMessage::Stop).unwrap();
+        }
         assert!(blocking_action.kill().await.is_ok());
 
         let handle = Handle::new_from(1);

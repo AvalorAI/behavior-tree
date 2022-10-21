@@ -67,9 +67,10 @@ impl NodeHandle {
         if self.tx.receiver_count() > 0 { // It already exited if no receiver is alive
             self.send(ChildMessage::Kill)?; 
             loop { 
-                match self.listen().await? {
-                    ParentMessage::Killed => return Ok(()),
-                    _ => {}
+                match self.listen().await {
+                    Ok(ParentMessage::Killed) => return Ok(()),
+                    Err(e) => log::debug!("Channel error received {e:?}"),
+                    _ => {} // Some other message that can be discarded
                 };
             }
         } else {
@@ -132,6 +133,12 @@ impl NodeHandle {
                 "type": self.element.clone()})
         }
     }
+
+    #[cfg(test)]
+    pub fn get_child_tx(&mut self) -> Sender<ParentMessage> {
+        self.tx_child.clone()
+    }
+
 }
 
 pub enum FutResponse {
@@ -212,4 +219,29 @@ pub enum NodeError {
     TokioSendError,
     #[error("Actor Error")]
     ActorError(#[from] ActorError),
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{bt::{action::mocking::MockAction, CHANNEL_SIZE}};
+    use tokio::time::{sleep, Duration};
+  
+    #[tokio::test]
+    async fn test_killing_nodes() {
+        let mut action = MockAction::new(1);
+        let action_tx = action.get_child_tx();
+
+        // Channel sizes double in size (starting from 8 --> 16 --> 32), so ensure that it always lags behind at least one message
+        for _ in 0..2*CHANNEL_SIZE{
+            // Ensure that even with overflown channels the killing is succesful
+            action_tx.send(ParentMessage::RequestStart).unwrap();
+        }
+        sleep(Duration::from_millis(1000)).await;
+        let res = action.kill().await;
+        println!("{:?}", res);
+        assert!(res.is_ok());
+
+    }
 }
