@@ -13,26 +13,45 @@ use crate::bt::CHANNEL_SIZE;
 // Simplify complex type
 type FutVec = Vec<Pin<Box<dyn Future<Output = Result<FutResponse, NodeError>> + Send>>>;
 
-pub struct Sequence {
+// Prevent typo errors in booleans by using explicit types
+pub struct Sequence {}
+
+impl Sequence {
+    pub fn new(children: Vec<NodeHandle>) -> NodeHandle {
+        let name = String::from("default_sequence");
+        SequenceProcess::new(children, name, false)
+    }
+
+    pub fn new_with_name<S: Into<String> + Clone>(name: S, children: Vec<NodeHandle>) -> NodeHandle {
+        SequenceProcess::new(children, name.into(), false)
+    }
+}
+
+pub struct BlockingSequence {}
+
+impl BlockingSequence {
+    pub fn new(children: Vec<NodeHandle>) -> NodeHandle {
+        let name = String::from("default_sequence");
+        SequenceProcess::new(children, name, true)
+    }
+
+    pub fn new_with_name<S: Into<String> + Clone>(name: S, children: Vec<NodeHandle>) -> NodeHandle {
+        SequenceProcess::new(children, name.into(), true)
+    }
+}
+
+pub struct SequenceProcess {
     name: String,
     children: Vec<NodeHandle>,
     tx: Sender<ParentMessage>,
     rx: Option<Receiver<ChildMessage>>,
     running_child: Option<usize>,
     status: Status,
+    blocking: bool,
 }
 
-impl Sequence {
-    pub fn new(children: Vec<NodeHandle>) -> NodeHandle {
-        let name = String::from("default_sequence");
-        Self::_init(children, name)
-    }
-
-    pub fn new_with_name<S: Into<String> + Clone>(name: S, children: Vec<NodeHandle>) -> NodeHandle {
-        Self::_init(children, name.into())
-    }
-
-    fn _init(mut children: Vec<NodeHandle>, name: String) -> NodeHandle {
+impl SequenceProcess {
+    fn new(mut children: Vec<NodeHandle>, name: String, blocking: bool) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
 
@@ -42,7 +61,7 @@ impl Sequence {
         for child in children.iter_mut() {
             handles.append(&mut child.take_handles());
         }
-        let node = Self::_new(name.clone(), children, node_tx.clone(), Some(node_rx));
+        let node = Self::_new(name.clone(), children, node_tx.clone(), Some(node_rx), blocking);
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(tx, node_tx, "Sequence", name, child_names, child_ids, handles)
@@ -53,6 +72,7 @@ impl Sequence {
         children: Vec<NodeHandle>,
         tx: Sender<ParentMessage>,
         rx: Option<Receiver<ChildMessage>>,
+        blocking: bool,
     ) -> Self {
         Self {
             name,
@@ -61,6 +81,7 @@ impl Sequence {
             rx,
             running_child: None,
             status: Status::Idle,
+            blocking,
         }
     }
 
@@ -108,7 +129,7 @@ impl Sequence {
                 }
             }
             ChildMessage::Stop => {
-                if self.status.is_running() {
+                if self.status.is_running() && !self.blocking {
                     if let Some(child_index) = self.running_child {
                         self.status = Status::Idle;
                         self.notify_child(child_index, ChildMessage::Stop)?;
@@ -147,7 +168,15 @@ impl Sequence {
                             }
                         } else if self.status.is_idle() {
                             // This occurs when the sequence has been stopped, and is waiting for confirmation
-                            self.update_status(Status::Success)?; // Confirm success to parent
+                            if let Some(current_child_index) = self.running_child {
+                                if current_child_index == (self.children.len() - 1) {
+                                    self.update_status(Status::Success)?; // Confirm success to parent if the sequence is finished
+                                } else {
+                                    self.update_status(Status::Failure)?; // Else confirm failure to parent
+                                }
+                            } else {
+                                self.update_status(Status::Failure)?; // Else confirm failure to parent
+                            }
                         }
                     }
                     Status::Failure => self.update_status(Status::Failure)?,
@@ -184,7 +213,7 @@ impl Sequence {
 }
 
 #[async_trait]
-impl Node for Sequence {
+impl Node for SequenceProcess {
     async fn serve(mut self) {
         let poison_tx = self.tx.clone();
         let name = self.name.clone();
@@ -230,7 +259,7 @@ mod tests {
         }
 
         let (node_tx, _) = channel(CHANNEL_SIZE); // Only needed for construction, as a handle is not useful here
-        let mut seq = Sequence::_new(String::from("some name"), children, node_tx, None);
+        let mut seq = SequenceProcess::_new(String::from("some name"), children, node_tx, None, false);
 
         // When
         let mut futures = seq.extract_futures();

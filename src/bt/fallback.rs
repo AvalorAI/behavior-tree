@@ -14,7 +14,34 @@ use super::handle::NodeError;
 // Simplify complex type
 type FutVec = Vec<Pin<Box<dyn Future<Output = Result<FutResponse, NodeError>> + Send>>>;
 
-pub struct Fallback {
+// Prevent typo errors in booleans by using explicit types
+pub struct Fallback {}
+
+impl Fallback {
+    pub fn new(children: Vec<NodeHandle>) -> NodeHandle {
+        let name = String::from("default_fallback");
+        FallbackProcess::new(children, name, false)
+    }
+
+    pub fn new_with_name<S: Into<String> + Clone>(name: S, children: Vec<NodeHandle>) -> NodeHandle {
+        FallbackProcess::new(children, name.into(), false)
+    }
+}
+
+pub struct BlockingFallback {}
+
+impl BlockingFallback {
+    pub fn new(children: Vec<NodeHandle>) -> NodeHandle {
+        let name = String::from("default_fallback");
+        FallbackProcess::new(children, name, true)
+    }
+
+    pub fn new_with_name<S: Into<String> + Clone>(name: S, children: Vec<NodeHandle>) -> NodeHandle {
+        FallbackProcess::new(children, name.into(), true)
+    }
+}
+
+pub struct FallbackProcess {
     name: String,
     children: Vec<NodeHandle>,
     tx: Sender<ParentMessage>,
@@ -22,19 +49,11 @@ pub struct Fallback {
     running_child: Option<usize>,
     prio_child_on_hold: Option<usize>,
     status: Status,
+    blocking: bool,
 }
 
-impl Fallback {
-    pub fn new(children: Vec<NodeHandle>) -> NodeHandle {
-        let name = String::from("default_fallback");
-        Self::_init(children, name)
-    }
-
-    pub fn new_with_name<S: Into<String> + Clone>(name: S, children: Vec<NodeHandle>) -> NodeHandle {
-        Self::_init(children, name.into())
-    }
-
-    pub fn _init(mut children: Vec<NodeHandle>, name: String) -> NodeHandle {
+impl FallbackProcess {
+    pub fn new(mut children: Vec<NodeHandle>, name: String, blocking: bool) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
 
@@ -44,7 +63,7 @@ impl Fallback {
         for child in children.iter_mut() {
             handles.append(&mut child.take_handles());
         }
-        let node = Self::_new(name.clone(), children, node_tx.clone(), Some(node_rx));
+        let node = Self::_new(name.clone(), children, node_tx.clone(), Some(node_rx), blocking);
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(tx, node_tx, "Fallback", name, child_names, child_ids, handles)
@@ -55,6 +74,7 @@ impl Fallback {
         children: Vec<NodeHandle>,
         tx: Sender<ParentMessage>,
         rx: Option<Receiver<ChildMessage>>,
+        blocking: bool,
     ) -> Self {
         Self {
             name,
@@ -64,6 +84,7 @@ impl Fallback {
             running_child: None,
             prio_child_on_hold: None,
             status: Status::Idle,
+            blocking,
         }
     }
 
@@ -111,7 +132,7 @@ impl Fallback {
                 }
             }
             ChildMessage::Stop => {
-                if self.status.is_running() {
+                if self.status.is_running() && !self.blocking {
                     if let Some(child_index) = self.running_child {
                         self.status = Status::Idle;
                         self.notify_child(child_index, ChildMessage::Stop)?;
@@ -155,7 +176,7 @@ impl Fallback {
                             }
                         }
                     } else if self.status.is_idle() {
-                        // This occurs when the fallback has been stopped, and is waiting for confirmation
+                        // This occurs when the fallback has been stopped, and is waiting for confirmation from its child
                         self.update_status(Status::Failure)?; // Confirm failure to parent
                     }
                 }
@@ -191,7 +212,7 @@ impl Fallback {
 }
 
 #[async_trait]
-impl Node for Fallback {
+impl Node for FallbackProcess {
     async fn serve(mut self) {
         let poison_tx = self.tx.clone();
         let name = self.name.clone();

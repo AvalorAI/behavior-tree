@@ -11,4 +11,4 @@ Conditions and Actions can be implemented using the Evaluator and Executor trait
 - Loop until success / failure
 - General node type composing overlapping code
 - Remove Ok(msg) from select statement to guarantee that all messages are processed
-- Review onetimecondition in sequence
+- Condition without handle

@@ -8,11 +8,11 @@ pub use crate::bt::{
     action::{Action, BlockingAction, Executor, Failure, Success, Wait},
     blocking_check::BlockingCheck,
     condition::{Condition, Evaluator, OneTimeCondition},
-    fallback::Fallback,
+    fallback::{BlockingFallback, Fallback},
     handle::NodeHandle,
     listener::{OuterStatus as Status, Update},
     loop_dec::LoopDecorator,
-    sequence::Sequence,
+    sequence::{BlockingSequence, Sequence},
 };
 
 #[cfg(test)]

@@ -231,6 +231,7 @@ mod tests {
     use crate::bt::action::mocking::{MockAction, MockBlockingAction, MockRunBlockingOnce};
     use crate::bt::condition::mocking::MockAsyncCondition;
     use crate::logging::load_logger;
+    use crate::{BlockingFallback, BlockingSequence};
     use listener::OuterStatus;
 
     async fn dummy_bt() -> BehaviorTree {
@@ -277,41 +278,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_websocket_connection() {
-        load_logger();
-
         let mut bt = dummy_bt().await;
         bt.connect(format!("ws://{}:{}", "localhost", 4012)).unwrap();
         sleep(Duration::from_secs(1)).await; // Allow for treabeard to receive messages
-    }
-
-    #[tokio::test]
-    async fn test_killing_nodes() {
-        let mut action = MockAction::new(1);
-
-        let mut blocking_action = MockBlockingAction::new(1);
-        for _ in 0..CHANNEL_SIZE + 2 {
-            // Ensure that even with overflown channels the killing is succesful
-            blocking_action.send(ChildMessage::Stop).unwrap();
-        }
-        assert!(blocking_action.kill().await.is_ok());
-
-        let handle = Handle::new_from(1);
-        let mut cond = Condition::new("1", handle.clone(), |x| x > 0, action.clone());
-        assert!(cond.kill().await.is_ok());
-
-        let mut check = BlockingCheck::new("1", handle.clone(), action.clone());
-        assert!(check.kill().await.is_ok());
-
-        let mut bt_loop = LoopDecorator::new("1", action.clone(), 100);
-        assert!(bt_loop.kill().await.is_ok());
-
-        let mut fb = Fallback::new(vec![action.clone()]);
-        assert!(fb.kill().await.is_ok());
-
-        let mut seq = Sequence::new(vec![action.clone()]);
-        assert!(seq.kill().await.is_ok());
-
-        assert!(action.kill().await.is_ok()); // Actions cannot be killed before expansion of the tree
     }
 
     //      Fb
@@ -712,7 +681,152 @@ mod tests {
         assert_eq!(bt.run_once().await.unwrap(), Status::Success);
     }
 
-    //      FB
+    //     Cond1
+    //       |
+    //      Seq
+    //     /   \
+    //  Action1  Action2
+    //
+    // pass cond1, during action2 fail cond1, pass seq
+    #[tokio::test]
+    async fn test_finish_stopped_sequence_with_last_blocking_action() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let action2 = MockBlockingAction::new(2);
+        let seq = Sequence::new(vec![action1, action2]);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, seq);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(600)).await;
+            handle.set(-1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Success);
+    }
+
+    //     Cond1
+    //       |
+    //      Seq
+    //     /   \
+    //  Action1  Action2
+    //
+    // pass cond1, during action1 fail cond1, pass seq
+    #[tokio::test]
+    async fn test_blocking_sequence_finish_seq() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let action2 = MockAction::new(2);
+        let seq = BlockingSequence::new(vec![action1, action2]);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, seq);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(-1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Success);
+    }
+
+    //     Cond1
+    //       |
+    //      Seq
+    //     /   \
+    //  Action1  Action2
+    //
+    // pass cond1, during action1 fail cond1, fail action2, fail seq
+    #[tokio::test]
+    async fn test_blocking_sequence_failure() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockAction::new_failing(1);
+        let action2 = MockAction::new(2);
+        let seq = BlockingSequence::new(vec![action1, action2]);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, seq);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(-1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Failure);
+    }
+
+    //     Cond1
+    //       |
+    //       Fb
+    //     /   \
+    //  Action1  Action2
+    //
+    // pass cond1, during action1 fail cond1, fail action1, pass fb
+    #[tokio::test]
+    async fn test_blocking_fallback_finish_fallback() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockAction::new_failing(1);
+        let action2 = MockAction::new(2);
+        let fb = BlockingFallback::new(vec![action1, action2]);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, fb);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(-1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Success);
+    }
+
+    //     Cond1
+    //       |
+    //      Fb
+    //     /   \
+    //  Action1  Action2
+    //
+    // pass cond1, during action1 fail cond1, succeed action1, pass fb
+    #[tokio::test]
+    async fn test_blocking_fallback_early_success() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let action2 = MockAction::new_failing(2);
+        let fb = BlockingFallback::new(vec![action1, action2]);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, fb);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(-1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Success);
+    }
+
+    //      Seq
     //     /   \
     //  Cond1  Action1
     //
@@ -725,8 +839,8 @@ mod tests {
         // When
         let action1 = MockAction::new(1);
         let cond1 = OneTimeCondition::new("1", handle.clone(), |i: i32| i > 0);
-        let fb = Fallback::new(vec![cond1, action1]);
-        let mut bt = BehaviorTree::new_test(fb);
+        let seq = Sequence::new(vec![cond1, action1]);
+        let mut bt = BehaviorTree::new_test(seq);
 
         let (res, res2) = tokio::join!(bt.run_once(), async {
             sleep(Duration::from_millis(200)).await;

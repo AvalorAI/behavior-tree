@@ -240,7 +240,6 @@ mod tests {
         }
         sleep(Duration::from_millis(1000)).await;
         let res = action.kill().await;
-        println!("{:?}", res);
         assert!(res.is_ok());
 
     }
