@@ -1,6 +1,6 @@
 use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
-use actor_model::{ActorError, Handle};
+use actor_model::Handle;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -61,9 +61,7 @@ where
                     Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
                     Status::Idle => {} // When Idle or succesful, child nodes should never become active
                     Status::Success => {}
-                    Status::Running => {
-                        log::warn!("Condition is running while the child is making a start request")
-                    }
+                    Status::Running => {} // If a blocking check is running, a child condition can request a start // TODO is this true?
                 }
             }
             ParentMessage::Status(status) => match status {
@@ -137,21 +135,12 @@ where
     }
 
     async fn evaluate(&self) -> Result<(), NodeError> {
-        match self.handle.get().await {
+        let mut cache = self.handle.create_cache();
+        match cache.listen().await {
             // A value is means it is set and can continue
             Ok(_) => Ok(()),
-            // No value forces a blocking wait until a value is set
-            Err(ActorError::NoValueSet(_)) => {
-                // Wait until value retrieved
-                let mut val_rx = self.handle.subscribe().await?;
-                loop {
-                    if val_rx.recv().await.is_ok() {
-                        break Ok(());
-                    }
-                }
-            }
             // Any other error is propagated
-            Err(e) => Err(e.into()),
+            Err(e) => Err(NodeError::ExecutionError(e.to_string())),
         }
     }
 
