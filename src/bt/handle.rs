@@ -1,7 +1,7 @@
 use anyhow::{Result};
 use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
-use tokio::sync::{broadcast::{Receiver, Sender}};
+use tokio::sync::{broadcast::{Receiver, Sender, error::SendError}};
 use thiserror::Error;
 use actor_model::ActorError;
 use std::mem;
@@ -86,7 +86,7 @@ impl NodeHandle {
     }
 
     pub fn send(&self, msg: ChildMessage) -> Result<(), NodeError> {
-        self.tx.send(msg).map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+        self.tx.send(msg)?;
         Ok(())
     }
 
@@ -213,14 +213,21 @@ pub enum NodeError {
     TokioBroadcastSendError(String), 
     #[error("Tokio broadcast receiver error")]
     TokioBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
-    #[error("Tokio mpsc receiver error")]
-    TokioRecvError,
-    #[error("Tokio sender error")]
-    TokioSendError,
     #[error("Actor Error")]
     ActorError(#[from] ActorError),
 }
 
+impl<T> From<SendError<T>> for NodeError {
+    fn from(err: SendError<T>) -> NodeError {
+       NodeError::TokioBroadcastSendError(err.to_string())
+    }
+}
+
+impl From<anyhow::Error> for NodeError {
+    fn from(err: anyhow::Error) -> NodeError {
+       NodeError::ExecutionError(err.to_string())
+    }
+}
 
 #[cfg(test)]
 mod tests {

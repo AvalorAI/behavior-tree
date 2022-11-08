@@ -83,9 +83,7 @@ impl LoopDecorator {
 
     fn notify_parent(&mut self, msg: ParentMessage) -> Result<(), NodeError> {
         log::debug!("Loop {:?} - notify parent: {:?}", self.name, msg);
-        self.tx
-            .send(msg)
-            .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+        self.tx.send(msg)?;
         Ok(())
     }
 

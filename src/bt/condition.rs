@@ -188,9 +188,7 @@ where
 
     fn notify_parent(&mut self, msg: ParentMessage) -> Result<(), NodeError> {
         log::debug!("Condition {:?} - notify parent: {:?}", self.evaluator.get_name(), msg);
-        self.tx
-            .send(msg)
-            .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+        self.tx.send(msg)?;
         Ok(())
     }
 

@@ -81,9 +81,7 @@ where
 
     async fn notify_parent(&mut self, msg: ParentMessage) -> Result<(), NodeError> {
         log::debug!("Action {:?} - notify parent: {:?}", self.inner.get_name(), msg);
-        self.tx
-            .send(msg)
-            .map_err(|e| NodeError::TokioBroadcastSendError(e.to_string()))?;
+        self.tx.send(msg)?;
         Ok(())
     }
 
@@ -104,10 +102,7 @@ where
 
     async fn execute(inner: &mut T, is_running: bool) -> Result<bool, NodeError> {
         if is_running {
-            Ok(inner
-                .execute()
-                .await
-                .map_err(|e| NodeError::ExecutionError(e.to_string()))?)
+            Ok(inner.execute().await?)
         } else {
             loop {
                 sleep(Duration::from_secs(10)).await // Sleep until execution started by parent
