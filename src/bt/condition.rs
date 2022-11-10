@@ -14,7 +14,7 @@ use super::CHANNEL_SIZE;
 pub trait Evaluator<V> {
     fn get_name(&self) -> String;
 
-    async fn evaluate(&self, val: V) -> Result<bool>;
+    async fn evaluate(&mut self, val: V) -> Result<bool>;
 }
 
 // If you pass in just a sync closure to condition::new(), this hidden wrapper is used beneath
@@ -52,7 +52,7 @@ where
         self.name.clone()
     }
 
-    async fn evaluate(&self, val: V) -> Result<bool> {
+    async fn evaluate(&mut self, val: V) -> Result<bool> {
         Ok((self.function)(val))
     }
 }
@@ -268,14 +268,14 @@ where
         Ok(Status::Failure) // Default failure to parent to prevent blocking
     }
 
-    async fn run_evaluator(&self, val: V) -> Result<bool, NodeError> {
+    async fn run_evaluator(&mut self, val: V) -> Result<bool, NodeError> {
         match self.evaluator.evaluate(val).await {
             Ok(res) => Ok(res),
             Err(e) => Err(NodeError::ExecutionError(e.to_string())),
         }
     }
 
-    async fn evaluate_now(&self) -> Result<bool, NodeError> {
+    async fn evaluate_now(&mut self) -> Result<bool, NodeError> {
         match self.handle.get().await {
             // A value is evaluated by the function
             Ok(val) => self.run_evaluator(val).await,
@@ -376,7 +376,7 @@ pub(crate) mod mocking {
             self.name.clone()
         }
 
-        async fn evaluate(&self, _val: i32) -> Result<bool> {
+        async fn evaluate(&mut self, _val: i32) -> Result<bool> {
             self.some_async_function().await;
             Ok(true)
         }
