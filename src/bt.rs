@@ -85,7 +85,7 @@ impl BehaviorTree {
     }
 
     // Run continuously
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<String> {
         log::debug!("Starting BT from {:?}", self.root_node.name);
         let mut listener = Listener::new(self.handles.clone(), self.tx.clone());
 
@@ -99,13 +99,14 @@ impl BehaviorTree {
             for handle in &mut self.handles {
                 log::debug!("Killing {} {:?}", handle.element, handle.name);
                 if let Err(e) = handle.kill().await {
-                    log::error!("Killing {:?} failed: {e:?}", handle.name);
+                    log::debug!("Killing {:?} failed: {e:?}", handle.name);
                     return Err(anyhow!("Cannot safely rebuild behaviour tree with active nodes: {e:?}"));
                 };
             }
             log::debug!("Killed all nodes succesfully");
+            return Ok(e.to_string());
         }
-        Ok(()) // This Ok is never fired, as _run can only exit through error propagation
+        Ok("".to_string()) // This Ok should never fire, as _run can only exit through error propagation
     }
 
     async fn _run(&mut self) -> Result<()> {
