@@ -133,7 +133,7 @@ where
     }
 
     async fn evaluate(&self) -> Result<(), NodeError> {
-        let mut cache = self.handle.create_cache();
+        let mut cache = self.handle.create_cache().await?;
         match cache.listen().await {
             // A value is means it is set and can continue
             Ok(_) => Ok(()),

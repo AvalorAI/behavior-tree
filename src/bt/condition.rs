@@ -200,7 +200,7 @@ where
         Ok(())
     }
 
-    async fn process_incoming_val(&mut self, val: Result<V>) -> Result<(), NodeError> {
+    async fn process_incoming_val(&mut self, val: Result<V, ActorError>) -> Result<(), NodeError> {
         // If its running but the function evaluates to false, then fail
         // If it failed but function evaluates to true, then request start
 
@@ -295,7 +295,7 @@ where
     }
 
     async fn _serve(mut self) -> Result<(), NodeError> {
-        let mut cache = self.handle.create_cache();
+        let mut cache = self.handle.create_cache().await?;
         loop {
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
