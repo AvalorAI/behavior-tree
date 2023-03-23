@@ -239,7 +239,11 @@ where
             match self.evaluate_now().await? {
                 true => {
                     self.update_status(Status::Running)?; // Send running to parent
-                    self.notify_child(ChildMessage::Start)?; // Start child
+                    if self.child.is_some() {
+                        self.notify_child(ChildMessage::Start)?; // Start child
+                    } else {
+                        self.update_status(Status::Success)?; // Without a child a condition succeeds immediately
+                    }
                 }
                 false => self.update_status(Status::Failure)?, // Send failure to parent
             }
@@ -256,13 +260,14 @@ where
                 // Wait until stopping confirmed
                 loop {
                     match child.listen().await? {
+                        // A returned status can be both succes and failure, even when stopping a child
                         ParentMessage::Status(Status::Failure) => return Ok(Status::Failure),
                         ParentMessage::Status(Status::Success) => return Ok(Status::Success),
                         _ => log::warn!("Invalid message received from child when stopping"),
                     }
                 }
             } else {
-                return Ok(Status::Success); // When no child is present, stopping succeeds immediately
+                return Ok(Status::Failure); // When no child is present the condition failes directly
             }
         }
         Ok(Status::Failure) // Default failure to parent to prevent blocking
