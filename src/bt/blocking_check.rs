@@ -1,6 +1,6 @@
 use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
-use actor_model::Handle;
+use actify::Handle;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;

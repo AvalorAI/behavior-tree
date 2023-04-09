@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
 use tokio::sync::{broadcast::{Receiver, Sender, error::SendError}};
 use thiserror::Error;
-use actor_model::ActorError;
+use actify::ActorError;
 use std::mem;
 use uuid::Uuid;
 

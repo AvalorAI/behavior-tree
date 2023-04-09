@@ -1,4 +1,4 @@
-use actor_model::{ActorError, Handle};
+use actify::{ActorError, Handle};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
