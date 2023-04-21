@@ -86,17 +86,21 @@ where
     }
 
     async fn process_msg_from_parent(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        if !self.blocking || !self.status.is_running() {
-            match msg {
-                ChildMessage::Start => self.update_status(Status::Running).await?,
-                ChildMessage::Stop => {
-                    if !self.blocking {
-                        self.update_status(Status::Failure).await?
-                    }
-                }
-                ChildMessage::Kill => return Err(NodeError::KillError),
-            }
+        if self.status.is_running() && self.blocking {
+            return Ok(()); // This should never happen as it should not even process the message?
         }
+
+        match msg {
+            ChildMessage::Start => self.update_status(Status::Running).await?,
+            ChildMessage::Stop => {
+                if !self.blocking {
+                    // This should never happen as it should not even process the message?
+                    self.update_status(Status::Failure).await?
+                }
+            }
+            ChildMessage::Kill => return Err(NodeError::KillError),
+        }
+
         Ok(())
     }
 
@@ -116,7 +120,9 @@ where
         rx: &mut Receiver<ChildMessage>,
     ) -> Option<ChildMessage> {
         while let Ok(msg) = rx.recv().await {
-            if !is_blocking || !is_running {
+            if is_running && is_blocking {
+                continue;
+            } else {
                 return Some(msg); // If it needs to be stopped immediately, pass each message directly
             }
         }

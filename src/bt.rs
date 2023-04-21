@@ -96,14 +96,7 @@ impl BehaviorTree {
 
         if let Err(e) = res {
             log::warn!("BT crashed - {:?} ", e);
-            for handle in &mut self.handles {
-                log::debug!("Killing {} {:?}", handle.element, handle.name);
-                if let Err(e) = handle.kill().await {
-                    log::debug!("Killing {:?} failed: {e:?}", handle.name);
-                    return Err(anyhow!("Cannot safely rebuild behaviour tree with active nodes: {e:?}"));
-                };
-            }
-            log::debug!("Killed all nodes succesfully");
+            self.kill().await?;
             return Ok(e.to_string());
         }
         Ok("".to_string()) // This Ok should never fire, as _run can only exit through error propagation
@@ -115,6 +108,18 @@ impl BehaviorTree {
             log::debug!("Exited BT with status: {:?} - restarting again", status);
             sleep(Duration::from_millis(BT_LOOP_TIME)).await;
         }
+    }
+
+    pub async fn kill(&mut self) -> Result<()> {
+        for handle in &mut self.handles {
+            log::debug!("Killing {} {:?}", handle.element, handle.name);
+            if let Err(e) = handle.kill().await {
+                log::debug!("Killing {:?} failed: {e:?}", handle.name);
+                return Err(anyhow!("Cannot safely rebuild behaviour tree with active nodes: {e:?}"));
+            };
+        }
+        log::debug!("Killed all nodes succesfully");
+        Ok(())
     }
 
     fn verify_unique_ids(handles: &Vec<NodeHandle>) -> Result<()> {
