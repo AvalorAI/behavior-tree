@@ -289,6 +289,33 @@ mod tests {
         sleep(Duration::from_secs(1)).await; // Allow for treabeard to receive messages
     }
 
+    #[tokio::test]
+    async fn test_killing_bt() {
+        // Setup
+        let handle = Handle::new_from(-1);
+
+        // When
+        let action = MockAction::new(1);
+        let cond = Condition::new("1", handle.clone(), |i: i32| i > 0, action);
+        let mut bt = BehaviorTree::new_test(cond);
+
+        let timer = sleep(Duration::from_millis(200));
+        tokio::pin!(timer);
+        tokio::select! {
+            _ = &mut timer => {None}
+            res = bt.run() => {Some(res)}
+        };
+
+        sleep(Duration::from_millis(200)).await;
+        bt.kill().await.unwrap();
+
+        println!("Setting condition");
+        handle.set(1).await.unwrap();
+        sleep(Duration::from_millis(200)).await;
+
+        // TODO some assert that the tree is not reacting to the value of the condition being changed?
+    }
+
     //      Fb
     //     /   \
     //   Seq  Action2
