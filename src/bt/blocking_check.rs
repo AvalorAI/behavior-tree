@@ -125,6 +125,7 @@ where
                 match self.child.listen().await? {
                     ParentMessage::Status(Status::Failure) => return Ok(Status::Failure),
                     ParentMessage::Status(Status::Success) => return Ok(Status::Success),
+                    ParentMessage::Poison(err) => return Err(err),
                     _ => log::warn!("Invalid message received from child when stopping"),
                 }
             }

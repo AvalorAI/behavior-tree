@@ -316,6 +316,31 @@ mod tests {
         // TODO some assert that the tree is not reacting to the value of the condition being changed?
     }
 
+    //  Cond1
+    //    |
+    // Action1
+    // Pass cond1, throw error in Action, cond1 handles error while in stop
+    #[tokio::test]
+    async fn test_poison_while_stopping() {
+        // Setup
+        let handle = Handle::new_from(1);
+
+        // When
+        let action1 = MockBlockingAction::new_error(1);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, action1);
+
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(-1).await // Condition asks action to stop
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert!(matches!(res.unwrap_err(), NodeError::PoisonError(_)));
+    }
+
     //      Fb
     //     /   \
     //   Seq  Action2

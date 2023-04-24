@@ -253,7 +253,7 @@ impl Executor for Failure {
 #[cfg(test)]
 pub(crate) mod mocking {
 
-    use anyhow::Result;
+    use anyhow::{anyhow, Result};
     use async_trait::async_trait;
     use tokio::time::{sleep, Duration};
 
@@ -264,21 +264,28 @@ pub(crate) mod mocking {
     pub struct MockAction {
         name: String,
         succeed: bool,
+        throw_error: bool,
     }
 
+    #[allow(dead_code)]
     impl MockAction {
         pub fn new(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, true))
+            Action::new(Self::_new(id, true, false))
         }
 
         pub fn new_failing(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, false))
+            Action::new(Self::_new(id, false, false))
         }
 
-        fn _new(id: i32, succeed: bool) -> Self {
+        pub fn new_error(id: i32) -> NodeHandle {
+            Action::new(Self::_new(id, true, true))
+        }
+
+        fn _new(id: i32, succeed: bool, throw_error: bool) -> Self {
             Self {
                 name: id.to_string(),
                 succeed,
+                throw_error,
             }
         }
     }
@@ -291,22 +298,41 @@ pub(crate) mod mocking {
 
         async fn execute(&mut self) -> Result<bool> {
             sleep(Duration::from_millis(500)).await;
-            Ok(self.succeed)
+            if self.throw_error {
+                Err(anyhow!("Some testing error!"))
+            } else {
+                Ok(self.succeed)
+            }
         }
     }
 
     // Same for Mock blocking, which cannot be stopped during execution
     pub struct MockBlockingAction {
         name: String,
+        succeed: bool,
+        throw_error: bool,
     }
 
+    #[allow(dead_code)]
     impl MockBlockingAction {
         pub fn new(id: i32) -> NodeHandle {
-            BlockingAction::new(Self::_new(id))
+            BlockingAction::new(Self::_new(id, true, false))
         }
 
-        fn _new(id: i32) -> Self {
-            Self { name: id.to_string() }
+        pub fn new_failing(id: i32) -> NodeHandle {
+            BlockingAction::new(Self::_new(id, false, false))
+        }
+
+        pub fn new_error(id: i32) -> NodeHandle {
+            BlockingAction::new(Self::_new(id, true, true))
+        }
+
+        fn _new(id: i32, succeed: bool, throw_error: bool) -> Self {
+            Self {
+                name: id.to_string(),
+                succeed,
+                throw_error,
+            }
         }
     }
 
@@ -318,7 +344,11 @@ pub(crate) mod mocking {
 
         async fn execute(&mut self) -> Result<bool> {
             sleep(Duration::from_millis(500)).await;
-            Ok(true)
+            if self.throw_error {
+                Err(anyhow!("Some testing error!"))
+            } else {
+                Ok(self.succeed)
+            }
         }
     }
 

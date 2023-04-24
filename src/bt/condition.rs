@@ -263,6 +263,7 @@ where
                         // A returned status can be both succes and failure, even when stopping a child
                         ParentMessage::Status(Status::Failure) => return Ok(Status::Failure),
                         ParentMessage::Status(Status::Success) => return Ok(Status::Success),
+                        ParentMessage::Poison(err) => return Err(err),
                         _ => log::warn!("Invalid message received from child when stopping"),
                     }
                 }
