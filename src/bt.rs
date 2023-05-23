@@ -41,7 +41,7 @@ impl BehaviorTree {
 
     #[cfg(test)]
     fn new_test(root_node: NodeHandle) -> Self {
-        BehaviorTree::_new(root_node, "test".to_string())
+        BehaviorTree::_new(root_node, "test-tree".to_string())
     }
 
     fn _new(mut root_node: NodeHandle, name: String) -> Self {
@@ -87,7 +87,7 @@ impl BehaviorTree {
     // Run continuously
     pub async fn run(&mut self) -> Result<String> {
         log::debug!("Starting BT from {:?}", self.root_node.name);
-        let mut listener = Listener::new(self.handles.clone(), self.tx.clone());
+        let mut listener = Listener::new(self.name.clone(), self.handles.clone(), self.tx.clone());
 
         let res = tokio::select! {
             res = listener.run_listeners() => {res}
@@ -287,6 +287,9 @@ mod tests {
         let mut bt = dummy_bt().await;
         bt.connect(format!("ws://{}:{}", "localhost", 4012)).unwrap();
         sleep(Duration::from_secs(1)).await; // Allow for treabeard to receive messages
+
+        // Enable this if you want to see updates
+        // let _ = bt.run().await;
     }
 
     #[tokio::test]

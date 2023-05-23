@@ -11,13 +11,14 @@ use super::handle::{FutResponse, NodeError, NodeHandle, ParentMessage, Status};
 type FutVec = Vec<Pin<Box<dyn Future<Output = Result<FutResponse, NodeError>> + Send>>>;
 
 pub struct Listener {
+    tree: String,
     handles: Vec<NodeHandle>,
     tx: Sender<Update>,
 }
 
 impl Listener {
-    pub fn new(handles: Vec<NodeHandle>, tx: Sender<Update>) -> Self {
-        Self { handles, tx }
+    pub fn new(tree: String, handles: Vec<NodeHandle>, tx: Sender<Update>) -> Self {
+        Self { tree, handles, tx }
     }
 
     pub async fn run_listeners(&mut self) -> Result<()> {
@@ -61,7 +62,7 @@ impl Listener {
     async fn update_status(&self, handle_index: usize, status: OuterStatus) -> Result<()> {
         Ok(self
             .tx
-            .send(Update::new(self.handles[handle_index].id.clone(), status))
+            .send(Update::new(self.handles[handle_index].id.clone(), status, self.tree.clone()))
             .await?)
     }
 }
@@ -71,11 +72,12 @@ pub struct Update {
     pub id: String,
     #[serde(rename = "status")]
     pub status: OuterStatus,
+    pub tree: String,
 }
 
 impl Update {
-    fn new(id: String, status: OuterStatus) -> Self {
-        Self { id, status }
+    fn new(id: String, status: OuterStatus, tree: String) -> Self {
+        Self { id, status, tree }
     }
 }
 
