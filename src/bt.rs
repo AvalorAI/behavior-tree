@@ -3,10 +3,8 @@ use serde_json::{json, Value};
 use simple_xml_builder::XMLElement;
 use std::fs::File;
 use std::mem;
-use tokio::{
-    sync::mpsc::{channel, Receiver, Sender},
-    time::{sleep, Duration},
-};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::time::{sleep, Duration};
 
 use handle::{ChildMessage, NodeError, NodeHandle, ParentMessage, Status};
 use listener::{Listener, Update};
@@ -15,7 +13,7 @@ use listener::{Listener, Update};
 use crate::ws::socket_connector::SocketConnector;
 
 const CHANNEL_SIZE: usize = 20;
-const BT_LOOP_TIME: u64 = 1000; // [ms]
+const BT_SUCCESS_LOOP_TIME: u64 = 1000; // [ms]
 
 pub mod action;
 pub mod blocking_check;
@@ -32,6 +30,7 @@ pub struct BehaviorTree {
     handles: Vec<NodeHandle>,
     tx: Sender<Update>,
     rx: Option<Receiver<Update>>,
+    status: Status,
 }
 
 impl BehaviorTree {
@@ -55,6 +54,7 @@ impl BehaviorTree {
             handles,
             tx,
             rx: Some(rx),
+            status: Status::Idle,
         }
     }
 
@@ -85,28 +85,24 @@ impl BehaviorTree {
     }
 
     // Run continuously
-    pub async fn run(&mut self) -> Result<String> {
+    pub async fn run(&mut self) -> Result<(), NodeError> {
         log::debug!("Starting BT from {:?}", self.root_node.name);
         let mut listener = Listener::new(self.name.clone(), self.handles.clone(), self.tx.clone());
 
-        let res = tokio::select! {
-            res = listener.run_listeners() => {res}
-            res = self._run() => {res}
-        };
-
-        if let Err(e) = res {
-            log::warn!("BT crashed - {:?} ", e);
-            self.kill().await?;
-            return Ok(e.to_string());
-        }
-        Ok("".to_string()) // This Ok should never fire, as _run can only exit through error propagation
-    }
-
-    async fn _run(&mut self) -> Result<()> {
         loop {
-            let status = self.run_once().await?;
-            log::debug!("Exited BT with status: {:?} - restarting again", status);
-            sleep(Duration::from_millis(BT_LOOP_TIME)).await;
+            tokio::select! {
+                _ = listener.run_listeners() => {}
+                res = self.start() => {
+                    if let Err(e) = res {
+                        log::warn!("BT crashed: {:?} ", e);
+                        self.kill().await?;
+                        return Err(e);
+                    } else {
+                        log::debug!("BT exited succesfully - restarting again");
+                        sleep(Duration::from_millis(BT_SUCCESS_LOOP_TIME)).await;
+                    }
+                }
+            };
         }
     }
 
@@ -136,6 +132,37 @@ impl BehaviorTree {
         }
     }
 
+    /// Starts the BT.
+    /// Upon failure, it will wait for any request starts based on async updated of the conditions
+    /// Upon success, it will exit
+    async fn start(&mut self) -> Result<(), NodeError> {
+        self.root_node.send(ChildMessage::Start)?;
+        self.status = Status::Running;
+        loop {
+            match self.root_node.listen().await? {
+                ParentMessage::Status(status) => match status {
+                    Status::Success => return Ok(()),
+                    Status::Failure => self.status = Status::Failure,
+                    _ => {} // Running or idle do not lead to updates for the root node
+                },
+                ParentMessage::RequestStart => {
+                    match self.status {
+                        Status::Failure => {
+                            self.root_node.send(ChildMessage::Start)?;
+                            self.status = Status::Running;
+                        }
+                        Status::Running => log::warn!("BT is running while the child is making a start request"),
+                        _ => {} // The BT can never be idle here, and it exits upon success
+                    }
+                }
+                ParentMessage::Poison(err) => return Err(err),
+                ParentMessage::Killed => return Err(NodeError::KillError), // This should not occur
+            }
+        }
+    }
+
+    #[cfg(test)]
+    /// A method specifically for testing, which allows to directly read any errors or a result from the BT
     async fn run_once(&mut self) -> Result<Status, NodeError> {
         self.root_node.send(ChildMessage::Start)?;
         loop {
@@ -145,9 +172,7 @@ impl BehaviorTree {
                     Status::Failure => return Ok(status),
                     _ => {}
                 },
-                ParentMessage::RequestStart => {
-                    log::debug!("Invalid status start request received from the root node")
-                }
+                ParentMessage::RequestStart => panic!("Invalid message"),
                 ParentMessage::Poison(err) => return Err(err),
                 ParentMessage::Killed => return Err(NodeError::KillError), // This should not occur
             }
@@ -423,6 +448,29 @@ mod tests {
     //    |
     // Action1
     #[tokio::test]
+    async fn test_root_restart_after_request() {
+        // Setup
+        let handle = Handle::new_from(-1);
+
+        // When
+        let action1 = Success::new();
+        let cond1: NodeHandle = Condition::new("1", handle.clone(), |x| x > 0, action1);
+        let mut bt = BehaviorTree::new_test(cond1);
+
+        let (res, res2) = tokio::join!(bt.start(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(1).await
+        });
+        res2.unwrap(); // Sanity check
+
+        // Then
+        assert!(res.is_ok());
+    }
+
+    //  Cond1
+    //    |
+    // Action1
+    #[tokio::test]
     async fn test_auto_failure() {
         // Setup
         let handle = Handle::new_from(1);
@@ -473,7 +521,6 @@ mod tests {
         let action1 = MockAction::new(1);
         let cond1 = Condition::new("1", handle.clone(), |x| x > 0, action1);
         let mut bt = BehaviorTree::new_test(cond1);
-        bt.run_once().await.unwrap();
 
         // Note that because the whole tree is run, it should not be allowed to repeat
         tokio::select! {
@@ -484,20 +531,20 @@ mod tests {
         };
 
         // Then
-        let mut rx = bt.take_rx().unwrap();
-        let goal_updates = vec![
+        let mut rx: Receiver<Update> = bt.take_rx().unwrap();
+        let goal_statuses = vec![
             OuterStatus::Running,
             OuterStatus::Running,
             OuterStatus::Success,
             OuterStatus::Success,
         ];
-        let mut all_updates = vec![];
+        let mut received_statuses = vec![];
         while let Ok(update) = rx.try_recv() {
-            all_updates.push(update.status);
+            received_statuses.push(update.status);
         }
 
-        for (index, update) in all_updates.iter().enumerate() {
-            assert_eq!(update, &goal_updates[index])
+        for (index, status) in goal_statuses.iter().enumerate() {
+            assert_eq!(status, &received_statuses[index])
         }
     }
 

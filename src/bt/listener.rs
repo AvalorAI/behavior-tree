@@ -21,13 +21,15 @@ impl Listener {
         Self { tree, handles, tx }
     }
 
-    pub async fn run_listeners(&mut self) -> Result<()> {
+    pub async fn run_listeners(&mut self) {
         let mut futures = self.extract_futures(); // To take ownership
 
         loop {
-            let (response, _, rem_futures) = select_all(futures).await; // Listen out all actions
+            let (result, _, rem_futures) = select_all(futures).await; // Listen out all actions
             futures = rem_futures;
-            match response? {
+
+            let Ok(response) = result else { continue }; // Errors in the listener should not lead to the BT crashing
+            match response {
                 FutResponse::Child(handle_index, msg, rx) => {
                     // Dont break the running BT because an external crate dropped the rx!
                     if let Err(e) = self.process_msg(msg, handle_index).await {
@@ -35,7 +37,7 @@ impl Listener {
                     }
                     futures.push(NodeHandle::run_listen(rx, handle_index).boxed());
                 }
-                _ => {}
+                _ => continue,
             }
         }
     }
