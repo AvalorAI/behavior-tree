@@ -162,9 +162,7 @@ where
                 if self.evaluate_now().await? {
                     match self.status {
                         Status::Failure => self.notify_parent(ParentMessage::RequestStart)?,
-                        Status::Idle => {} // When Idle or succesful, child nodes should never become active
-                        Status::Success => {}
-                        Status::Running => log::warn!("Condition is running while the child is making a start request"),
+                        _ => {} // In other cases the request start should be ignored
                     }
                 }
             }
