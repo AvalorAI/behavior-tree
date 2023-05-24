@@ -28,7 +28,7 @@ impl Listener {
             let (result, _, rem_futures) = select_all(futures).await; // Listen out all actions
             futures = rem_futures;
 
-            let Ok(response) = result else { continue }; // Errors in the listener should not lead to the BT crashing
+            let Ok(response) = result else {  continue }; // Errors in the listener should not lead to the BT crashing
             match response {
                 FutResponse::Child(handle_index, msg, rx) => {
                     // Dont break the running BT because an external crate dropped the rx!

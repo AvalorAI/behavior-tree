@@ -111,6 +111,7 @@ where
     rx: Receiver<ChildMessage>,
     status: Status,
     evaluator: T,
+    prev_evaluation: bool,
 }
 
 impl<V, T> ConditionProcess<V, T>
@@ -153,6 +154,7 @@ where
             tx,
             rx,
             status: Status::Idle,
+            prev_evaluation: false,
         }
     }
 
@@ -214,7 +216,8 @@ where
         if self.status.is_running() && !self.run_evaluator(val.clone()).await? {
             let status = self.stop_workflow().await?;
             self.update_status(status)?;
-        } else if self.status.is_failure() && self.run_evaluator(val).await? {
+        } else if self.status.is_failure() && !self.prev_evaluation && self.run_evaluator(val).await? {
+            // Only when a value has changed compared to the previous evaluation a request start is necessary
             self.notify_parent(ParentMessage::RequestStart)?
         }
         Ok(())
@@ -274,7 +277,10 @@ where
 
     async fn run_evaluator(&mut self, val: V) -> Result<bool, NodeError> {
         match self.evaluator.evaluate(val).await {
-            Ok(res) => Ok(res),
+            Ok(res) => {
+                self.prev_evaluation = res;
+                Ok(res)
+            }
             Err(e) => Err(NodeError::ExecutionError(e.to_string())),
         }
     }

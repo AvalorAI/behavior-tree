@@ -87,22 +87,17 @@ impl BehaviorTree {
     // Run continuously
     pub async fn run(&mut self) -> Result<(), NodeError> {
         log::debug!("Starting BT from {:?}", self.root_node.name);
-        let mut listener = Listener::new(self.name.clone(), self.handles.clone(), self.tx.clone());
-
+        let mut listener: Listener = Listener::new(self.name.clone(), self.handles.clone(), self.tx.clone());
+        tokio::spawn(async move { listener.run_listeners().await });
         loop {
-            tokio::select! {
-                _ = listener.run_listeners() => {}
-                res = self.start() => {
-                    if let Err(e) = res {
-                        log::warn!("BT crashed: {:?} ", e);
-                        self.kill().await?;
-                        return Err(e);
-                    } else {
-                        log::debug!("BT exited succesfully - restarting again");
-                        sleep(Duration::from_millis(BT_SUCCESS_LOOP_TIME)).await;
-                    }
-                }
-            };
+            if let Err(e) = self.start().await {
+                log::warn!("BT crashed: {:?} ", e);
+                self.kill().await?;
+                return Err(e);
+            } else {
+                log::debug!("BT exited succesfully - restarting again");
+                sleep(Duration::from_millis(BT_SUCCESS_LOOP_TIME)).await;
+            }
         }
     }
 
@@ -467,6 +462,38 @@ mod tests {
         assert!(res.is_ok());
     }
 
+    //      FB
+    //    /    \
+    //  Cond1  Action2
+    //    |
+    //  Cond2
+    //    |
+    // Action1
+    // Cond1 succeeds, cond2 fails, cond1 gets updated but does not send request start, action2 fails
+    #[tokio::test]
+    async fn test_no_request_start_when_already_ok() {
+        // Setup
+        let handle1 = Handle::new_from(1);
+        let handle2 = Handle::new_from(-1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let action2 = MockAction::fail_on_twice(2); // A request start will lead to action2 being restarted, as cond2 still fails.
+        let cond2: NodeHandle = Condition::new("2", handle2.clone(), |x| x > 0, action1);
+        let cond1: NodeHandle = Condition::new("1", handle1.clone(), |x| x > 0, cond2);
+        let fb = Fallback::new(vec![cond1, action2]);
+        let mut bt = BehaviorTree::new_test(fb);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle1.set(1).await // This value was already ok, but it should not lead to a request start, as it was already ok
+        });
+        res2.unwrap(); // Sanity check
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Success);
+    }
+
     //  Cond1
     //    |
     // Action1
@@ -542,6 +569,8 @@ mod tests {
         while let Ok(update) = rx.try_recv() {
             received_statuses.push(update.status);
         }
+
+        println!("received_statuses {:?}", received_statuses);
 
         for (index, status) in goal_statuses.iter().enumerate() {
             assert_eq!(status, &received_statuses[index])
@@ -1081,7 +1110,7 @@ mod tests {
         let action1 = MockAction::new(1);
         let action2 = MockAction::new(2);
         let cond1 = Condition::new("1", handle1.clone(), |x| !x.is_empty(), action1);
-        let cond2 = Condition::new("1", handle2.clone(), |i: i32| i > 0, action2);
+        let cond2 = Condition::new("2", handle2.clone(), |i: i32| i > 0, action2);
         let fb = Fallback::new(vec![cond1, cond2]);
         let mut bt = BehaviorTree::new_test(fb);
         assert_eq!(bt.handles.len(), 5);

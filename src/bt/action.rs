@@ -263,29 +263,37 @@ pub(crate) mod mocking {
     // The Mock action is intended to completely mock all logic of a normal action, but does not execute anything complex.
     pub struct MockAction {
         name: String,
+        calls: i32,
         succeed: bool,
         throw_error: bool,
+        fail_on_twice: bool,
     }
 
     #[allow(dead_code)]
     impl MockAction {
         pub fn new(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, true, false))
+            Action::new(Self::_new(id, true, false, false))
         }
 
         pub fn new_failing(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, false, false))
+            Action::new(Self::_new(id, false, false, false))
+        }
+
+        pub fn fail_on_twice(id: i32) -> NodeHandle {
+            Action::new(Self::_new(id, true, false, true))
         }
 
         pub fn new_error(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, true, true))
+            Action::new(Self::_new(id, true, true, false))
         }
 
-        fn _new(id: i32, succeed: bool, throw_error: bool) -> Self {
+        fn _new(id: i32, succeed: bool, throw_error: bool, fail_on_twice: bool) -> Self {
             Self {
+                calls: 0,
                 name: id.to_string(),
                 succeed,
                 throw_error,
+                fail_on_twice,
             }
         }
     }
@@ -297,11 +305,16 @@ pub(crate) mod mocking {
         }
 
         async fn execute(&mut self) -> Result<bool> {
+            self.calls += 1;
             sleep(Duration::from_millis(500)).await;
             if self.throw_error {
                 Err(anyhow!("Some testing error!"))
             } else {
-                Ok(self.succeed)
+                if self.fail_on_twice {
+                    Ok(self.calls < 2)
+                } else {
+                    Ok(self.succeed)
+                }
             }
         }
     }
