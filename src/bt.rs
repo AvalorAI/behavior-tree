@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use simple_xml_builder::XMLElement;
 use std::fs::File;
-use std::mem;
+
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
@@ -71,7 +71,7 @@ impl BehaviorTree {
     }
 
     fn _take_rx(&mut self) -> Result<Receiver<Update>> {
-        mem::replace(&mut self.rx, None).ok_or(anyhow!("Receiver already taken"))
+        self.rx.take().ok_or(anyhow!("Receiver already taken"))
     }
 
     // The connect function automatically send the BT once as soon as connection established

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::mem;
+
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration};
 
@@ -139,7 +139,7 @@ where
     }
 
     async fn _serve(mut self) -> Result<(), NodeError> {
-        let mut rx = mem::replace(&mut self.rx, None).unwrap(); // To take ownership
+        let mut rx = self.rx.take().unwrap(); // To take ownership
         loop {
             tokio::select! {
                 Some(msg) =  ActionProcess::<T>::listen_for_parent_msg(self.blocking, self.status.is_running(), &mut rx) => self.process_msg_from_parent(msg).await?,
@@ -320,12 +320,10 @@ pub(crate) mod mocking {
             sleep(Duration::from_millis(500)).await;
             if self.throw_error {
                 Err(anyhow!("Some testing error!"))
+            } else if self.fail_on_twice {
+                Ok(self.calls < 2)
             } else {
-                if self.fail_on_twice {
-                    Ok(self.calls < 2)
-                } else {
-                    Ok(self.succeed)
-                }
+                Ok(self.succeed)
             }
         }
     }
@@ -402,7 +400,7 @@ pub(crate) mod mocking {
         }
 
         async fn execute(&mut self) -> Result<bool> {
-            if self.called == true {
+            if self.called {
                 Ok(false) // Return when already called
             } else {
                 self.called = true;

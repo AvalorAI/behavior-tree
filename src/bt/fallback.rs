@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::select_all;
 use futures::{Future, FutureExt};
-use std::mem;
+
 use std::pin::Pin;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 
@@ -218,7 +218,7 @@ impl FallbackProcess {
 
     async fn _serve(mut self) -> Result<(), NodeError> {
         let mut futures = self.extract_futures(); // To take ownership
-        let rx = mem::replace(&mut self.rx, None).expect("BT sequence rx must be set");
+        let rx = self.rx.take().expect("BT sequence rx must be set");
         futures.push(Self::run_listen_parent(rx).boxed());
 
         loop {

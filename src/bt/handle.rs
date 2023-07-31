@@ -2,7 +2,7 @@ use actify::ActorError;
 use anyhow::Result;
 use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
-use std::mem;
+
 use thiserror::Error;
 use tokio::sync::broadcast::{error::SendError, Receiver, Sender};
 use uuid::Uuid;
@@ -81,7 +81,7 @@ impl NodeHandle {
     }
 
     pub fn take_handles(&mut self) -> Vec<NodeHandle> {
-        let mut handles = mem::replace(&mut self.handles, vec![]);
+        let mut handles = std::mem::take(&mut self.handles);
         handles.push(self.clone());
         handles
     }
