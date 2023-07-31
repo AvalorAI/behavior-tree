@@ -1,10 +1,10 @@
-use anyhow::{Result};
+use actify::ActorError;
+use anyhow::Result;
 use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
-use tokio::sync::{broadcast::{Receiver, Sender, error::SendError}};
-use thiserror::Error;
-use actify::ActorError;
 use std::mem;
+use thiserror::Error;
+use tokio::sync::broadcast::{error::SendError, Receiver, Sender};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -64,9 +64,10 @@ impl NodeHandle {
     }
 
     pub(crate) async fn kill(&mut self) -> Result<()> {
-        if self.tx.receiver_count() > 0 { // It already exited if no receiver is alive
-            self.send(ChildMessage::Kill)?; 
-            loop { 
+        if self.tx.receiver_count() > 0 {
+            // It already exited if no receiver is alive
+            self.send(ChildMessage::Kill)?;
+            loop {
                 match self.listen().await {
                     Ok(ParentMessage::Killed) => return Ok(()),
                     Err(e) => log::debug!("Channel error received {e:?}"),
@@ -76,10 +77,10 @@ impl NodeHandle {
         } else {
             log::debug!("{} {:?} already exited", self.element, self.name);
         }
-        Ok(())  
+        Ok(())
     }
 
-    pub fn take_handles(&mut self) -> Vec<NodeHandle>{
+    pub fn take_handles(&mut self) -> Vec<NodeHandle> {
         let mut handles = mem::replace(&mut self.handles, vec![]);
         handles.push(self.clone());
         handles
@@ -95,13 +96,16 @@ impl NodeHandle {
     }
 
     // Consuming and returning the receiver allows stacking it in a future vector
-    pub async fn run_listen(mut rx: Receiver<ParentMessage>, child_index: usize) -> Result<FutResponse, NodeError> {
+    pub async fn run_listen(
+        mut rx: Receiver<ParentMessage>,
+        child_index: usize,
+    ) -> Result<FutResponse, NodeError> {
         let msg = NodeHandle::_listen(&mut rx).await?;
         Ok(FutResponse::Child(child_index, msg, rx)) // The rx is returned to ensure the channel is fully read
     }
 
     pub async fn listen(&mut self) -> Result<ParentMessage, NodeError> {
-       NodeHandle::_listen(&mut self.rx).await
+        NodeHandle::_listen(&mut self.rx).await
     }
 
     async fn _listen(rx: &mut Receiver<ParentMessage>) -> Result<ParentMessage, NodeError> {
@@ -109,7 +113,7 @@ impl NodeHandle {
     }
 
     pub fn get_xml(&self) -> XMLElement {
-       let element = if self.element == "Condition" {
+        let element = if self.element == "Condition" {
             String::from("Decorator") // Groot sees any condition as decorator
         } else {
             self.element.clone()
@@ -138,14 +142,12 @@ impl NodeHandle {
     pub fn get_child_tx(&mut self) -> Sender<ParentMessage> {
         self.tx_child.clone()
     }
-
 }
 
 pub enum FutResponse {
     Parent(ChildMessage, Receiver<ChildMessage>),
     Child(usize, ParentMessage, Receiver<ParentMessage>),
 }
-
 
 #[async_trait]
 pub trait Node: Sync + Send {
@@ -157,8 +159,6 @@ pub trait Node: Sync + Send {
         Ok(FutResponse::Parent(msg, rx))
     }
 }
-
-
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum Status {
@@ -190,7 +190,7 @@ impl Status {
 pub enum ChildMessage {
     Start,
     Stop,
-    Kill, 
+    Kill,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -206,11 +206,11 @@ pub enum NodeError {
     #[error("The node is killed")]
     KillError,
     #[error("Poison error: {0}")]
-    PoisonError(String), 
+    PoisonError(String),
     #[error("Execution error: {0}")]
-    ExecutionError(String), 
+    ExecutionError(String),
     #[error("Tokio broadcast send error: {0}")]
-    TokioBroadcastSendError(String), 
+    TokioBroadcastSendError(String),
     #[error("Tokio broadcast receiver error")]
     TokioBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
     #[error("Actor Error")]
@@ -219,35 +219,34 @@ pub enum NodeError {
 
 impl<T> From<SendError<T>> for NodeError {
     fn from(err: SendError<T>) -> NodeError {
-       NodeError::TokioBroadcastSendError(err.to_string())
+        NodeError::TokioBroadcastSendError(err.to_string())
     }
 }
 
 impl From<anyhow::Error> for NodeError {
     fn from(err: anyhow::Error) -> NodeError {
-       NodeError::ExecutionError(err.to_string())
+        NodeError::ExecutionError(err.to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bt::{action::mocking::MockAction, CHANNEL_SIZE}};
+    use crate::bt::{action::mocking::MockAction, CHANNEL_SIZE};
     use tokio::time::{sleep, Duration};
-  
+
     #[tokio::test]
     async fn test_killing_nodes() {
         let mut action = MockAction::new(1);
         let action_tx = action.get_child_tx();
 
         // Channel sizes double in size (starting from 8 --> 16 --> 32), so ensure that it always lags behind at least one message
-        for _ in 0..2*CHANNEL_SIZE{
+        for _ in 0..2 * CHANNEL_SIZE {
             // Ensure that even with overflown channels the killing is succesful
             action_tx.send(ParentMessage::RequestStart).unwrap();
         }
         sleep(Duration::from_millis(1000)).await;
         let res = action.kill().await;
         assert!(res.is_ok());
-
     }
 }

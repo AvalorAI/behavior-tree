@@ -54,9 +54,17 @@ impl Listener {
     async fn process_msg(&self, msg: ParentMessage, handle_index: usize) -> Result<()> {
         match msg {
             ParentMessage::RequestStart => {}
-            ParentMessage::Status(status) => self.update_status(handle_index, status.into()).await?,
-            ParentMessage::Poison(_) => self.update_status(handle_index, OuterStatus::Poisonend).await?,
-            ParentMessage::Killed => self.update_status(handle_index, OuterStatus::Killed).await?,
+            ParentMessage::Status(status) => {
+                self.update_status(handle_index, status.into()).await?
+            }
+            ParentMessage::Poison(_) => {
+                self.update_status(handle_index, OuterStatus::Poisonend)
+                    .await?
+            }
+            ParentMessage::Killed => {
+                self.update_status(handle_index, OuterStatus::Killed)
+                    .await?
+            }
         }
         Ok(())
     }
@@ -64,7 +72,11 @@ impl Listener {
     async fn update_status(&self, handle_index: usize, status: OuterStatus) -> Result<()> {
         Ok(self
             .tx
-            .send(Update::new(self.handles[handle_index].id.clone(), status, self.tree.clone()))
+            .send(Update::new(
+                self.handles[handle_index].id.clone(),
+                status,
+                self.tree.clone(),
+            ))
             .await?)
     }
 }

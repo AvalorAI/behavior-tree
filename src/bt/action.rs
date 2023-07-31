@@ -63,7 +63,12 @@ where
         NodeHandle::new(tx, node_tx, "Action", name, vec![], vec![], vec![])
     }
 
-    fn _new(tx: Sender<ParentMessage>, rx: Receiver<ChildMessage>, inner: T, blocking: bool) -> Self {
+    fn _new(
+        tx: Sender<ParentMessage>,
+        rx: Receiver<ChildMessage>,
+        inner: T,
+        blocking: bool,
+    ) -> Self {
         Self {
             tx,
             rx: Some(rx),
@@ -80,7 +85,11 @@ where
     }
 
     async fn notify_parent(&mut self, msg: ParentMessage) -> Result<(), NodeError> {
-        log::debug!("Action {:?} - notify parent: {:?}", self.inner.get_name(), msg);
+        log::debug!(
+            "Action {:?} - notify parent: {:?}",
+            self.inner.get_name(),
+            msg
+        );
         self.tx.send(msg)?;
         Ok(())
     }
@@ -164,7 +173,9 @@ impl<T: Executor + Send + Sync + 'static> Node for ActionProcess<T> {
                 err => {
                     // Else poison the parent
                     log::debug!("Action {name:?} - poisoning parent");
-                    if let Err(e) = poison_tx.send(ParentMessage::Poison(NodeError::PoisonError(err.to_string()))) {
+                    if let Err(e) = poison_tx.send(ParentMessage::Poison(NodeError::PoisonError(
+                        err.to_string(),
+                    ))) {
                         log::warn!("Action {name:?} - poisoning the parent failed! {e:?}")
                     }
                 }

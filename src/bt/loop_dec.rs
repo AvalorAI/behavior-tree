@@ -16,17 +16,35 @@ pub struct LoopDecorator {
 }
 
 impl LoopDecorator {
-    pub fn new<S: Into<String> + Clone>(name: S, mut child: NodeHandle, pause_millis: u64) -> NodeHandle {
+    pub fn new<S: Into<String> + Clone>(
+        name: S,
+        mut child: NodeHandle,
+        pause_millis: u64,
+    ) -> NodeHandle {
         let (node_tx, _) = channel(CHANNEL_SIZE);
         let (tx, node_rx) = channel(CHANNEL_SIZE);
 
         let child_name = child.name.clone();
         let child_id = child.id.clone();
         let handles = child.take_handles();
-        let node = Self::_new(name.clone().into(), child, node_tx.clone(), node_rx, pause_millis);
+        let node = Self::_new(
+            name.clone().into(),
+            child,
+            node_tx.clone(),
+            node_rx,
+            pause_millis,
+        );
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx, node_tx, "Decorator", name, vec![child_name], vec![child_id], handles)
+        NodeHandle::new(
+            tx,
+            node_tx,
+            "Decorator",
+            name,
+            vec![child_name],
+            vec![child_id],
+            handles,
+        )
     }
 
     fn _new(
@@ -88,7 +106,12 @@ impl LoopDecorator {
     }
 
     fn notify_child(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
-        log::debug!("Loop {:?} - notify child {:?}: {:?}", self.name, self.child.name, msg);
+        log::debug!(
+            "Loop {:?} - notify child {:?}: {:?}",
+            self.name,
+            self.child.name,
+            msg
+        );
         self.child.send(msg)?;
         Ok(())
     }
@@ -157,7 +180,7 @@ impl Node for LoopDecorator {
                     }
                 }
                 NodeError::PoisonError(e) => poison_parent(poison_tx, name, e), // Propagate error
-                err => poison_parent(poison_tx, name, err.to_string()),         // If any error in itself, poison parent
+                err => poison_parent(poison_tx, name, err.to_string()), // If any error in itself, poison parent
             },
             Ok(_) => {} // Should never occur
         }

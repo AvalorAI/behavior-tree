@@ -187,14 +187,23 @@ where
     }
 
     fn notify_parent(&mut self, msg: ParentMessage) -> Result<(), NodeError> {
-        log::debug!("Condition {:?} - notify parent: {:?}", self.evaluator.get_name(), msg);
+        log::debug!(
+            "Condition {:?} - notify parent: {:?}",
+            self.evaluator.get_name(),
+            msg
+        );
         self.tx.send(msg)?;
         Ok(())
     }
 
     fn notify_child(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
         if let Some(child) = &self.child {
-            log::debug!("Condition {:?} - notify child {:?}: {:?}", self.evaluator.get_name(), child.name, msg);
+            log::debug!(
+                "Condition {:?} - notify child {:?}: {:?}",
+                self.evaluator.get_name(),
+                child.name,
+                msg
+            );
             child.send(msg)?;
         }
         Ok(())
@@ -216,7 +225,10 @@ where
         if self.status.is_running() && !self.run_evaluator(val.clone()).await? {
             let status = self.stop_workflow().await?;
             self.update_status(status)?;
-        } else if self.status.is_failure() && !self.prev_evaluation && self.run_evaluator(val).await? {
+        } else if self.status.is_failure()
+            && !self.prev_evaluation
+            && self.run_evaluator(val).await?
+        {
             // Only when a value has changed compared to the previous evaluation a request start is necessary
             self.notify_parent(ParentMessage::RequestStart)?
         }
@@ -289,7 +301,6 @@ where
         match self.handle.get().await {
             // A value is evaluated by the function
             Ok(val) => self.run_evaluator(val).await,
-            Err(ActorError::NoValueSet(_)) => Ok(false), // No value always evaluates to false
             Err(e) => Err(e.into()),
         }
     }
@@ -339,7 +350,7 @@ where
                     }
                 }
                 NodeError::PoisonError(e) => poison_parent(poison_tx, name, e), // Propagate error
-                err => poison_parent(poison_tx, name, err.to_string()),         // If any error in itself, poison parent
+                err => poison_parent(poison_tx, name, err.to_string()), // If any error in itself, poison parent
             },
             Ok(_) => {} // Should never occur
         }

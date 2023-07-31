@@ -87,7 +87,8 @@ impl BehaviorTree {
     // Run continuously
     pub async fn run(&mut self) -> Result<(), NodeError> {
         log::debug!("Starting BT from {:?}", self.root_node.name);
-        let mut listener: Listener = Listener::new(self.name.clone(), self.handles.clone(), self.tx.clone());
+        let mut listener: Listener =
+            Listener::new(self.name.clone(), self.handles.clone(), self.tx.clone());
         tokio::spawn(async move { listener.run_listeners().await });
         loop {
             if let Err(e) = self.start().await {
@@ -106,7 +107,9 @@ impl BehaviorTree {
             log::debug!("Killing {} {:?}", handle.element, handle.name);
             if let Err(e) = handle.kill().await {
                 log::debug!("Killing {:?} failed: {e:?}", handle.name);
-                return Err(anyhow!("Cannot safely rebuild behaviour tree with active nodes: {e:?}"));
+                return Err(anyhow!(
+                    "Cannot safely rebuild behaviour tree with active nodes: {e:?}"
+                ));
             };
         }
         log::debug!("Killed all nodes succesfully");
@@ -146,7 +149,9 @@ impl BehaviorTree {
                             self.root_node.send(ChildMessage::Start)?;
                             self.status = Status::Running;
                         }
-                        Status::Running => log::warn!("BT is running while the child is making a start request"),
+                        Status::Running => {
+                            log::warn!("BT is running while the child is making a start request")
+                        }
                         _ => {} // The BT can never be idle here, and it exits upon success
                     }
                 }
@@ -208,7 +213,13 @@ impl BehaviorTree {
         for child in &children_names {
             let handle = handles
                 .iter()
-                .find_map(|x| if x.name == *child { Some(x.clone()) } else { None })
+                .find_map(|x| {
+                    if x.name == *child {
+                        Some(x.clone())
+                    } else {
+                        None
+                    }
+                })
                 .expect("A child was not present in the handles!");
 
             let el_base = handle.get_xml();
@@ -227,7 +238,8 @@ impl BehaviorTree {
     }
 
     pub fn export_json<S: Into<String> + Clone>(&mut self, name: S) -> Result<Value> {
-        let node_description: Vec<serde_json::value::Value> = self.handles.iter().map(|x| x.get_json()).collect();
+        let node_description: Vec<serde_json::value::Value> =
+            self.handles.iter().map(|x| x.get_json()).collect();
 
         let bt = json!({
             "name": name.into(),
@@ -261,7 +273,7 @@ mod tests {
     use listener::OuterStatus;
 
     async fn dummy_bt() -> BehaviorTree {
-        let handle = Handle::new_from(-1);
+        let handle = Handle::new(-1);
         let action1 = MockAction::new(1);
         let cond1 = Condition::new("cond1", handle.clone(), |i: i32| i > 0, action1);
         let seq = Sequence::new(vec![cond1]);
@@ -305,7 +317,8 @@ mod tests {
     #[ignore]
     async fn test_websocket_connection() {
         let mut bt = dummy_bt().await;
-        bt.connect(format!("ws://{}:{}", "localhost", 4012)).unwrap();
+        bt.connect(format!("ws://{}:{}", "localhost", 4012))
+            .unwrap();
         sleep(Duration::from_secs(1)).await; // Allow for treabeard to receive messages
 
         // Enable this if you want to see updates
@@ -315,7 +328,7 @@ mod tests {
     #[tokio::test]
     async fn test_killing_bt() {
         // Setup
-        let handle = Handle::new_from(-1);
+        let handle = Handle::new(-1);
 
         // When
         let action = MockAction::new(1);
@@ -346,7 +359,7 @@ mod tests {
     #[tokio::test]
     async fn test_poison_while_stopping() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockBlockingAction::new_error(1);
@@ -375,7 +388,7 @@ mod tests {
     #[tokio::test]
     async fn test_sequence_request_start_while_failed() {
         // Setup
-        let handle = Handle::new_from(-1);
+        let handle = Handle::new(-1);
 
         // When
         let action1 = MockAction::new(1);
@@ -405,7 +418,7 @@ mod tests {
     #[tokio::test]
     async fn test_force_action_completion() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockBlockingAction::new(1);
@@ -428,7 +441,7 @@ mod tests {
     #[tokio::test]
     async fn test_auto_success() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = Success::new();
@@ -445,7 +458,7 @@ mod tests {
     #[tokio::test]
     async fn test_root_restart_after_request() {
         // Setup
-        let handle = Handle::new_from(-1);
+        let handle = Handle::new(-1);
 
         // When
         let action1 = Success::new();
@@ -473,8 +486,8 @@ mod tests {
     #[tokio::test]
     async fn test_no_request_start_when_already_ok() {
         // Setup
-        let handle1 = Handle::new_from(1);
-        let handle2 = Handle::new_from(-1);
+        let handle1 = Handle::new(1);
+        let handle2 = Handle::new(-1);
 
         // When
         let action1 = MockAction::new(1);
@@ -500,7 +513,7 @@ mod tests {
     #[tokio::test]
     async fn test_auto_failure() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = Failure::new();
@@ -519,7 +532,7 @@ mod tests {
     #[tokio::test]
     async fn test_prohibit_double_blocking_execution() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockRunBlockingOnce::new(1);
@@ -542,7 +555,7 @@ mod tests {
     #[tokio::test]
     async fn test_listen_rx() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -575,32 +588,6 @@ mod tests {
         for (index, status) in goal_statuses.iter().enumerate() {
             assert_eq!(status, &received_statuses[index])
         }
-    }
-
-    //  Cond1
-    //    |
-    // Action1
-    //
-    // Blocking cond1 does not pass, tests terminates without reaching Action1
-    #[tokio::test]
-    async fn test_blocking_no_val_received() {
-        // Setup
-        let handle = Handle::<i32>::new();
-        let timer = sleep(Duration::from_millis(1000));
-        tokio::pin!(timer);
-
-        // When
-        let action1 = MockAction::new(1);
-        let cond1 = BlockingCheck::new("1", handle.clone(), action1);
-        let mut bt = BehaviorTree::new_test(cond1);
-
-        let res = tokio::select! {
-            _ = &mut timer => {None}
-            res = bt.run_once() => {Some(res)}
-        };
-
-        // Then
-        assert!(res.is_none());
     }
 
     //  Loop
@@ -638,7 +625,7 @@ mod tests {
     #[tokio::test]
     async fn test_loop_is_stopped() {
         // Setup
-        let handle = Handle::<i32>::new_from(1);
+        let handle = Handle::<i32>::new(1);
         let timer = sleep(Duration::from_millis(1000));
         tokio::pin!(timer);
 
@@ -667,42 +654,11 @@ mod tests {
     //    |
     // Action1
     //
-    // Blocking cond1 does not pass, passes after time, bt terminates succesfully
-    #[tokio::test]
-    async fn test_blocking_some_val_received() {
-        // Setup
-        let handle = Handle::<i32>::new();
-        let timer = sleep(Duration::from_millis(2000));
-        tokio::pin!(timer);
-
-        // When
-        let action1 = MockAction::new(1);
-        let cond1 = BlockingCheck::new("1", handle.clone(), action1);
-        let mut bt = BehaviorTree::new_test(cond1);
-
-        let res = tokio::select! {
-            _ = &mut timer => {None}
-            _ = async {
-                sleep(Duration::from_millis(200)).await;
-                handle.set(-1).await.unwrap();
-                sleep(Duration::from_millis(1000)).await; // Allow timely execution of mock action
-            } => {None}
-            res = bt.run_once() => {Some(res)}
-        };
-
-        // Then
-        assert_eq!(res.unwrap().unwrap(), Status::Success);
-    }
-
-    //  Cond1
-    //    |
-    // Action1
-    //
     // Don't pas cond1
     #[tokio::test]
     async fn test_async_condition() {
         // Setup
-        let handle: Handle<i32> = Handle::new_from(1);
+        let handle: Handle<i32> = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -719,28 +675,9 @@ mod tests {
     //
     // Don't pas cond1
     #[tokio::test]
-    async fn test_if_val_exists() {
-        // Setup
-        let handle: Handle<i32> = Handle::new();
-
-        // When
-        let action1 = MockAction::new(1);
-        let cond1 = Condition::new("1", handle, |_| true, action1);
-        let mut bt = BehaviorTree::new_test(cond1);
-
-        // Then
-        assert_eq!(bt.run_once().await.unwrap(), Status::Failure);
-    }
-
-    //  Cond1
-    //    |
-    // Action1
-    //
-    // Don't pas cond1
-    #[tokio::test]
     async fn test_if_vec_not_empty() {
         // Setup
-        let handle: Handle<Vec<i32>> = Handle::new_from(vec![]);
+        let handle: Handle<Vec<i32>> = Handle::new(vec![]);
 
         // When
         let action1 = MockAction::new(1);
@@ -759,7 +696,7 @@ mod tests {
     #[tokio::test]
     async fn test_if_map_not_empty() {
         // Setup
-        let handle: Handle<HashMap<&str, i32>> = Handle::new_from(HashMap::new());
+        let handle: Handle<HashMap<&str, i32>> = Handle::new(HashMap::new());
 
         // When
         let action1 = MockAction::new(1);
@@ -780,7 +717,7 @@ mod tests {
     #[tokio::test]
     async fn test_simple_sequence() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -804,7 +741,7 @@ mod tests {
     #[tokio::test]
     async fn test_simple_fallback_plan_a() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -828,7 +765,7 @@ mod tests {
     #[tokio::test]
     async fn test_finish_stopped_sequence_with_last_blocking_action() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -857,7 +794,7 @@ mod tests {
     #[tokio::test]
     async fn test_blocking_sequence_finish_seq() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -886,7 +823,7 @@ mod tests {
     #[tokio::test]
     async fn test_blocking_sequence_failure() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new_failing(1);
@@ -915,7 +852,7 @@ mod tests {
     #[tokio::test]
     async fn test_blocking_fallback_finish_fallback() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new_failing(1);
@@ -944,7 +881,7 @@ mod tests {
     #[tokio::test]
     async fn test_blocking_fallback_early_success() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -971,7 +908,7 @@ mod tests {
     #[tokio::test]
     async fn test_one_time_condition() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -999,7 +936,7 @@ mod tests {
     #[tokio::test]
     async fn test_simple_fallback_plan_b() {
         // Setup
-        let handle = Handle::new_from(-1);
+        let handle = Handle::new(-1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1024,8 +961,8 @@ mod tests {
     #[tokio::test]
     async fn test_double_condition_sequence() {
         // Setup
-        let handle1 = Handle::new_from(1);
-        let handle2: Handle<i32> = Handle::new_from(-1);
+        let handle1 = Handle::new(1);
+        let handle2: Handle<i32> = Handle::new(-1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1050,7 +987,7 @@ mod tests {
     #[tokio::test]
     async fn test_later_fail_of_sequence() {
         // Setup
-        let handle = Handle::new_from(-1);
+        let handle = Handle::new(-1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1074,7 +1011,7 @@ mod tests {
     #[tokio::test]
     async fn test_simple_sequence_with_subscribe() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1103,8 +1040,8 @@ mod tests {
     #[tokio::test]
     async fn test_vec_not_empty_with_subscribe() {
         // Setup
-        let handle1: Handle<Vec<i32>> = Handle::new_from(vec![]);
-        let handle2 = Handle::new_from(1);
+        let handle1: Handle<Vec<i32>> = Handle::new(vec![]);
+        let handle2 = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1143,7 +1080,7 @@ mod tests {
     #[tokio::test]
     async fn test_fallback_switch_to_prio() {
         // Setup
-        let handle = Handle::new_from(-1);
+        let handle = Handle::new(-1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1174,8 +1111,8 @@ mod tests {
     #[tokio::test]
     async fn test_double_condition_sequence_with_subscribe() {
         // Setup
-        let handle1 = Handle::new_from(1);
-        let handle2 = Handle::new_from(1);
+        let handle1 = Handle::new(1);
+        let handle2 = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1206,7 +1143,7 @@ mod tests {
     #[tokio::test]
     async fn test_conditional_sequence_with_subscribe() {
         // Setup
-        let handle = Handle::new_from(1);
+        let handle = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1241,8 +1178,8 @@ mod tests {
     #[tokio::test]
     async fn test_failed_fallback_with_delayed_child_request() {
         // Setup
-        let handle1 = Handle::new_from(1);
-        let handle2 = Handle::new_from(-1);
+        let handle1 = Handle::new(1);
+        let handle2 = Handle::new(-1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1285,8 +1222,8 @@ mod tests {
     #[tokio::test]
     async fn test_prohibited_fallback() {
         // Setup
-        let handle1 = Handle::new_from(1);
-        let handle2 = Handle::new_from(1);
+        let handle1 = Handle::new(1);
+        let handle2 = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);
@@ -1319,9 +1256,9 @@ mod tests {
     #[tokio::test]
     async fn test_double_request_start_before_failing_fallback() {
         // Setup
-        let handle1 = Handle::new_from(1);
-        let handle2 = Handle::new_from(-1);
-        let handle3 = Handle::new_from(1);
+        let handle1 = Handle::new(1);
+        let handle2 = Handle::new(-1);
+        let handle3 = Handle::new(1);
 
         // When
         let action1 = MockAction::new(1);

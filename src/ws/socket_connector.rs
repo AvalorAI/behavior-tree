@@ -37,7 +37,9 @@ impl SocketConnector {
 
     async fn serve(mut connector: SocketConnector) {
         let (mut writer, mut _reader) = connector.wait_for_connect(&connector.socket_url).await;
-        writer.run(&mut connector.rx, connector.bt_export.clone()).await;
+        writer
+            .run(&mut connector.rx, connector.bt_export.clone())
+            .await;
     }
 
     async fn wait_for_connect(&self, socket_url: &Url) -> (SocketWriter, SocketReader) {
@@ -47,7 +49,10 @@ impl SocketConnector {
                 let (writer, reader) = socket.split();
                 return (SocketWriter { writer }, SocketReader { reader });
             }
-            log::warn!("Trying to connect websocket again in {:?}", CONNECTION_TIME_OUT);
+            log::warn!(
+                "Trying to connect websocket again in {:?}",
+                CONNECTION_TIME_OUT
+            );
             sleep(Duration::from_secs(CONNECTION_TIME_OUT)).await
         }
     }
