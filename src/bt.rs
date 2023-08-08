@@ -85,7 +85,7 @@ impl BehaviorTree {
     }
 
     // Run continuously
-    pub async fn run(&mut self) -> Result<(), NodeError> {
+    pub async fn run(&mut self) -> NodeError {
         log::debug!("Starting BT from {:?}", self.root_node.name);
         let mut listener: Listener =
             Listener::new(self.name.clone(), self.handles.clone(), self.tx.clone());
@@ -93,8 +93,12 @@ impl BehaviorTree {
         loop {
             if let Err(e) = self.start().await {
                 log::warn!("BT crashed: {:?} ", e);
-                self.kill().await?;
-                return Err(e);
+                if let Err(e) = self.kill().await {
+                    // When killing a BT fails, you get a 'rogue' BT with spawned actions still in the background
+                    // This is potentially dangerous, so a panic occurs.
+                    panic!("Killing BT failed: {e:?}");
+                }
+                return e;
             } else {
                 log::debug!("BT exited succesfully - restarting again");
                 sleep(Duration::from_millis(BT_SUCCESS_LOOP_TIME)).await;
@@ -564,7 +568,7 @@ mod tests {
 
         // Note that because the whole tree is run, it should not be allowed to repeat
         tokio::select! {
-            res = bt.run() => {res.unwrap();}
+            err = bt.run() => {panic!("{err:?}");}
             _ = async {
                 sleep(Duration::from_millis(1000)).await;
             } => {}
