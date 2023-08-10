@@ -9,7 +9,7 @@ pub use crate::bt::{
     blocking_check::BlockingCheck,
     condition::{Condition, Evaluator, OneTimeCondition},
     fallback::{BlockingFallback, Fallback},
-    handle::NodeHandle,
+    handle::{NodeError, NodeHandle},
     listener::{OuterStatus as Status, Update},
     loop_dec::LoopDecorator,
     sequence::{BlockingSequence, Sequence},
