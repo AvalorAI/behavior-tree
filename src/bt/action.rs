@@ -95,6 +95,10 @@ where
     }
 
     async fn process_msg_from_parent(&mut self, msg: ChildMessage) -> Result<(), NodeError> {
+        if msg.is_kill() {
+            return Err(NodeError::KillError);
+        }
+
         if self.status.is_running() && self.blocking {
             return Ok(()); // This should never happen as it should not even process the message?
         }
@@ -107,7 +111,7 @@ where
                     self.update_status(Status::Failure).await?
                 }
             }
-            ChildMessage::Kill => return Err(NodeError::KillError),
+            _ => {}
         }
 
         Ok(())
@@ -129,7 +133,7 @@ where
         rx: &mut Receiver<ChildMessage>,
     ) -> Option<ChildMessage> {
         while let Ok(msg) = rx.recv().await {
-            if is_running && is_blocking {
+            if is_running && is_blocking && !msg.is_kill() {
                 continue;
             } else {
                 return Some(msg); // If it needs to be stopped immediately, pass each message directly
@@ -333,27 +337,33 @@ pub(crate) mod mocking {
         name: String,
         succeed: bool,
         throw_error: bool,
+        keep_looping: bool,
     }
 
     #[allow(dead_code)]
     impl MockBlockingAction {
         pub fn new(id: i32) -> NodeHandle {
-            BlockingAction::new(Self::_new(id, true, false))
+            BlockingAction::new(Self::_new(id, true, false, false))
+        }
+
+        pub fn new_loop(id: i32) -> NodeHandle {
+            BlockingAction::new(Self::_new(id, true, false, true))
         }
 
         pub fn new_failing(id: i32) -> NodeHandle {
-            BlockingAction::new(Self::_new(id, false, false))
+            BlockingAction::new(Self::_new(id, false, false, false))
         }
 
         pub fn new_error(id: i32) -> NodeHandle {
-            BlockingAction::new(Self::_new(id, true, true))
+            BlockingAction::new(Self::_new(id, true, true, false))
         }
 
-        fn _new(id: i32, succeed: bool, throw_error: bool) -> Self {
+        fn _new(id: i32, succeed: bool, throw_error: bool, keep_looping: bool) -> Self {
             Self {
                 name: id.to_string(),
                 succeed,
                 throw_error,
+                keep_looping,
             }
         }
     }
@@ -365,7 +375,13 @@ pub(crate) mod mocking {
         }
 
         async fn execute(&mut self) -> Result<bool> {
-            sleep(Duration::from_millis(500)).await;
+            loop {
+                sleep(Duration::from_millis(500)).await;
+
+                if !self.keep_looping {
+                    break;
+                }
+            }
             if self.throw_error {
                 Err(anyhow!("Some testing error!"))
             } else {

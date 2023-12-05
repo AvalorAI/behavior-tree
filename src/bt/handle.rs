@@ -193,6 +193,12 @@ pub enum ChildMessage {
     Kill,
 }
 
+impl ChildMessage {
+    pub fn is_kill(&self) -> bool{
+        *self == ChildMessage::Kill
+    }
+}
+
 #[derive(PartialEq, Debug, Clone)]
 pub enum ParentMessage {
     RequestStart,

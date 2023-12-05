@@ -439,6 +439,25 @@ mod tests {
         assert_eq!(res.unwrap(), Status::Success);
     }
 
+    // Action1
+    //
+    // BT kill works on blocking action
+    #[tokio::test]
+    async fn test_kill_blocking_action() {
+        // When
+        let action1 = MockBlockingAction::new_loop(1);
+        let mut bt = BehaviorTree::new_test(action1);
+
+        tokio::select! {
+            _ = bt.run() => {}
+            _ = async {
+                sleep(Duration::from_millis(1000)).await;
+            } => {}
+        }
+
+        bt.kill().await.unwrap();
+    }
+
     //  Cond1
     //    |
     // Action1
