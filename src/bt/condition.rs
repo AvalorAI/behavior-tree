@@ -321,7 +321,7 @@ where
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
                 Ok(msg) = ConditionProcess::<V, T>::listen_to_child(&mut self.child) => self.process_msg_from_child(msg).await?,
-                val = cache.listen_newest() => self.process_incoming_val(val).await?,
+                val = cache.recv_newest() => self.process_incoming_val(val.cloned()).await?,
                 else => log::warn!("Only invalid messages received"),
             };
         }

@@ -152,7 +152,7 @@ where
 
     async fn evaluate(&self) -> Result<(), NodeError> {
         let mut cache = self.handle.create_initialized_cache().await?;
-        match cache.listen().await {
+        match cache.recv().await {
             // A value is means it is set and can continue
             Ok(_) => Ok(()),
             // Any other error is propagated
