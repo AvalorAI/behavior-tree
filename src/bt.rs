@@ -778,6 +778,34 @@ mod tests {
         assert_eq!(bt.run_once().await.unwrap(), Status::Success);
     }
 
+    // Fail cond 1-3. Pass cond 4, then simultanously pass cond 1-3
+    #[tokio::test]
+    async fn test_fallback_multiple_requests() {
+        // Setup
+        let handle = Handle::new(-1);
+
+        // When
+        let action1 = MockAction::new(1);
+        let action2 = Failure::new(); // Ensures that the test only succeeds if the first action completes
+        let action3 = Failure::new();
+        let action4 = MockAction::new_loop(4);
+        let cond1 = Condition::new("1", handle.clone(), |i: i32| i > 0, action1);
+        let cond2 = Condition::new("2", handle.clone(), |i: i32| i > 0, action2);
+        let cond3 = Condition::new("3", handle.clone(), |i: i32| i > 0, action3);
+        let cond4 = Condition::new("4", handle.clone(), |i: i32| i < 0, action4);
+        let fb = Fallback::new(vec![cond1, cond2, cond3, cond4]);
+        let mut bt = BehaviorTree::new_test(fb);
+
+        let (res, res2) = tokio::join!(bt.run_once(), async {
+            sleep(Duration::from_millis(200)).await;
+            handle.set(1).await
+        });
+        res2.unwrap(); // Check for any unsuspected errors
+
+        // Then
+        assert_eq!(res.unwrap(), Status::Success);
+    }
+
     //     Cond1
     //       |
     //      Seq

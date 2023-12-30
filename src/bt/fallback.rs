@@ -179,11 +179,24 @@ impl FallbackProcess {
                     Status::Idle => {} // When Idle or succesful, child nodes should never become active
                     Status::Success => {}
                     Status::Running => {
-                        if let Some(current_child_index) = self.running_child {
-                            if child_index <= current_child_index {
-                                self.notify_child(current_child_index, ChildMessage::Stop)?; // Stop current child
-                                self.prio_child_on_hold = Some(child_index); // Set new child on hold until current child failes
+                        let Some(running_child_index) = self.running_child else {
+                            log::warn!("Fallback is running while no running child present"); // Should not happen
+                            return Ok(());
+                        };
+
+                        // If already on hold, and the current request is higher prio, swap them out
+                        // We don't need to stop the child again, as you are sure that the running child has been notified
+                        if let Some(prio_child_on_hold) = self.prio_child_on_hold {
+                            if child_index <= prio_child_on_hold {
+                                self.prio_child_on_hold = Some(child_index); // Overwrite current one on hold
                             }
+                            return Ok(());
+                        }
+
+                        // If no prio on hold already, notify the running child to stop and set the prio on hold
+                        if child_index <= running_child_index {
+                            self.notify_child(running_child_index, ChildMessage::Stop)?; // Stop current child
+                            self.prio_child_on_hold = Some(child_index); // Set new child on hold
                         }
                     }
                 }
@@ -192,15 +205,26 @@ impl FallbackProcess {
                 Status::Success => self.update_status(Status::Success)?,
                 Status::Failure => {
                     if self.status.is_running() {
-                        if let Some(child_index) = self.prio_child_on_hold {
-                            self.start_child(child_index)?; // Start the previously failed but prio child
+                        let Some(running_child_index) = self.running_child else {
+                            log::warn!("Fallback is running while no running child present"); // Should not happen
+                            return Ok(());
+                        };
+
+                        if child_index != running_child_index {
+                            return Ok(()); // Received a failure from a child that is not running, so ignore the message
+                        }
+
+                        // If the running child stopped, start
+                        // 1) A prio child if available
+                        // 2) The next in the sequence if not exhausted
+                        // 3) Fail the fallback completely
+                        if let Some(prio_child_on_hold) = self.prio_child_on_hold {
                             self.prio_child_on_hold = None; // Clear the waiting child
-                        } else if let Some(child_index) = self.running_child {
-                            if child_index < (self.children.len() - 1) {
-                                self.start_child(child_index + 1)?; // Start next in sequence
-                            } else {
-                                self.update_status(Status::Failure)?; // The sequence has completed
-                            }
+                            self.start_child(prio_child_on_hold)?; // Start the previously failed but prio child
+                        } else if child_index < (self.children.len() - 1) {
+                            self.start_child(child_index + 1)?; // Start next in sequence
+                        } else {
+                            self.update_status(Status::Failure)?; // The sequence has completed
                         }
                     } else if self.status.is_idle() {
                         // This occurs when the fallback has been stopped, and is waiting for confirmation from its child

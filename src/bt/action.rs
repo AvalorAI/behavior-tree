@@ -282,33 +282,45 @@ pub(crate) mod mocking {
         succeed: bool,
         throw_error: bool,
         fail_on_twice: bool,
+        keep_looping: bool,
     }
 
     #[allow(dead_code)]
     impl MockAction {
         pub fn new(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, true, false, false))
+            Action::new(Self::_new(id, true, false, false, false))
+        }
+
+        pub fn new_loop(id: i32) -> NodeHandle {
+            Action::new(Self::_new(id, true, false, false, true))
         }
 
         pub fn new_failing(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, false, false, false))
+            Action::new(Self::_new(id, false, false, false, false))
         }
 
         pub fn fail_on_twice(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, true, false, true))
+            Action::new(Self::_new(id, true, false, true, false))
         }
 
         pub fn new_error(id: i32) -> NodeHandle {
-            Action::new(Self::_new(id, true, true, false))
+            Action::new(Self::_new(id, true, true, false, false))
         }
 
-        fn _new(id: i32, succeed: bool, throw_error: bool, fail_on_twice: bool) -> Self {
+        fn _new(
+            id: i32,
+            succeed: bool,
+            throw_error: bool,
+            fail_on_twice: bool,
+            keep_looping: bool,
+        ) -> Self {
             Self {
                 calls: 0,
                 name: id.to_string(),
                 succeed,
                 throw_error,
                 fail_on_twice,
+                keep_looping,
             }
         }
     }
@@ -321,7 +333,15 @@ pub(crate) mod mocking {
 
         async fn execute(&mut self) -> Result<bool> {
             self.calls += 1;
-            sleep(Duration::from_millis(500)).await;
+
+            loop {
+                sleep(Duration::from_millis(500)).await;
+
+                if !self.keep_looping {
+                    break;
+                }
+            }
+
             if self.throw_error {
                 Err(anyhow!("Some testing error!"))
             } else if self.fail_on_twice {
