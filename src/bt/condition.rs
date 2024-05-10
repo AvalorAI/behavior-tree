@@ -1,4 +1,4 @@
-use actify::{ActorError, Handle};
+use actify::{CacheRecvNewestError, Handle};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -209,7 +209,10 @@ where
         Ok(())
     }
 
-    async fn process_incoming_val(&mut self, val: Result<V, ActorError>) -> Result<(), NodeError> {
+    async fn process_incoming_val(
+        &mut self,
+        val: Result<V, CacheRecvNewestError>,
+    ) -> Result<(), NodeError> {
         // If its running but the function evaluates to false, then fail
         // If it failed but function evaluates to true, then request start
 
@@ -316,12 +319,12 @@ where
     }
 
     async fn _serve(mut self) -> Result<(), NodeError> {
-        let mut cache = self.handle.create_initialized_cache().await?;
+        let mut cache = self.handle.create_cache().await?;
         loop {
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
                 Ok(msg) = ConditionProcess::<V, T>::listen_to_child(&mut self.child) => self.process_msg_from_child(msg).await?,
-                val = cache.recv_newest() => self.process_incoming_val(val.cloned()).await?,
+                res = cache.recv_newest() => self.process_incoming_val(res.cloned()).await?,
                 else => log::warn!("Only invalid messages received"),
             };
         }

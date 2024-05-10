@@ -1,4 +1,4 @@
-use actify::ActorError;
+use actify::{ActorError, CacheRecvNewestError};
 use anyhow::Result;
 use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
@@ -221,6 +221,8 @@ pub enum NodeError {
     TokioBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
     #[error("Actor Error")]
     ActorError(#[from] ActorError),
+    #[error("Cache Error")]
+    CacheError(#[from] CacheRecvNewestError),
 }
 
 impl<T> From<SendError<T>> for NodeError {

@@ -16,7 +16,6 @@ const CHANNEL_SIZE: usize = 20;
 const BT_SUCCESS_LOOP_TIME: u64 = 1000; // [ms]
 
 pub mod action;
-pub mod blocking_check;
 pub mod condition;
 pub mod fallback;
 pub mod handle;
@@ -264,7 +263,6 @@ mod tests {
     use super::*;
     use super::{
         action::{Failure, Success},
-        blocking_check::BlockingCheck,
         condition::{Condition, OneTimeCondition},
         fallback::Fallback,
         loop_dec::LoopDecorator,
