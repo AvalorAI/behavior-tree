@@ -27,5 +27,4 @@ actify = "0.5.1"
 
 [features]
 default = []
-websocket = [
-] # add specific dependencies only required for the websocket connector
+websocket = []
