@@ -58,8 +58,8 @@ pub struct SequenceProcess {
 
 impl SequenceProcess {
     fn new(mut children: Vec<NodeHandle>, name: String, blocking: bool) -> NodeHandle {
-        let (node_tx, _) = channel(CHANNEL_SIZE);
-        let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (parent_tx, parent_rx) = channel(CHANNEL_SIZE);
+        let (child_tx, child_rx) = channel(CHANNEL_SIZE);
 
         let child_names = children.iter().map(|x| x.name.clone()).collect();
         let child_ids = children.iter().map(|x| x.id.clone()).collect();
@@ -70,15 +70,15 @@ impl SequenceProcess {
         let node = Self::_new(
             name.clone(),
             children,
-            node_tx.clone(),
-            Some(node_rx),
+            child_tx.clone(),
+            Some(parent_rx),
             blocking,
         );
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(
-            tx,
-            node_tx,
+            parent_tx,
+            child_rx,
             "Sequence",
             name,
             child_names,

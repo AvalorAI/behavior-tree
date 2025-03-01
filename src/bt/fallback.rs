@@ -60,8 +60,8 @@ pub struct FallbackProcess {
 
 impl FallbackProcess {
     pub fn new(mut children: Vec<NodeHandle>, name: String, blocking: bool) -> NodeHandle {
-        let (node_tx, _) = channel(CHANNEL_SIZE);
-        let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (parent_tx, parent_rx) = channel(CHANNEL_SIZE);
+        let (child_tx, child_rx) = channel(CHANNEL_SIZE);
 
         let child_names = children.iter().map(|x| x.name.clone()).collect();
         let child_ids = children.iter().map(|x| x.id.clone()).collect();
@@ -72,15 +72,15 @@ impl FallbackProcess {
         let node = Self::_new(
             name.clone(),
             children,
-            node_tx.clone(),
-            Some(node_rx),
+            parent_tx.clone(),
+            Some(child_rx),
             blocking,
         );
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(
-            tx,
-            node_tx,
+            child_tx,
+            parent_rx,
             "Fallback",
             name,
             child_names,

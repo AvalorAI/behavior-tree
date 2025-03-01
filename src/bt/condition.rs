@@ -120,18 +120,24 @@ where
     V: Clone + Debug + Send + Sync + Clone + 'static,
 {
     pub fn new(handle: Handle<V>, evaluator: T, child: Option<NodeHandle>) -> NodeHandle {
-        let (node_tx, _) = channel(CHANNEL_SIZE);
-        let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (parent_tx, parent_rx) = channel(CHANNEL_SIZE);
+        let (child_tx, child_rx) = channel(CHANNEL_SIZE);
 
         let child_name = child.clone().map(|x| x.name.clone());
         let child_id = child.clone().map(|x| x.id.clone());
         let handles = child.clone().map(|mut x| x.take_handles());
-        let node = Self::_new(evaluator.clone(), handle, child, node_tx.clone(), node_rx);
+        let node = Self::_new(
+            evaluator.clone(),
+            handle,
+            child,
+            parent_tx.clone(),
+            child_rx,
+        );
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(
-            tx,
-            node_tx,
+            child_tx,
+            parent_rx,
             "Condition",
             evaluator.get_name(),
             child_name.map_or(vec![], |x| vec![x]),

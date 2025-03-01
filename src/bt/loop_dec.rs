@@ -21,8 +21,8 @@ impl LoopDecorator {
         mut child: NodeHandle,
         pause_millis: u64,
     ) -> NodeHandle {
-        let (node_tx, _) = channel(CHANNEL_SIZE);
-        let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (parent_tx, parent_rx) = channel(CHANNEL_SIZE);
+        let (child_tx, child_rx) = channel(CHANNEL_SIZE);
 
         let child_name = child.name.clone();
         let child_id = child.id.clone();
@@ -30,15 +30,15 @@ impl LoopDecorator {
         let node = Self::_new(
             name.clone().into(),
             child,
-            node_tx.clone(),
-            node_rx,
+            parent_tx.clone(),
+            child_rx,
             pause_millis,
         );
         tokio::spawn(Self::serve(node));
 
         NodeHandle::new(
-            tx,
-            node_tx,
+            child_tx,
+            parent_rx,
             "Decorator",
             name,
             vec![child_name],

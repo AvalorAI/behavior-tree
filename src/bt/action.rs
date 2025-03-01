@@ -53,14 +53,14 @@ where
     T: Executor + Send + Sync + 'static,
 {
     pub fn new(inner: T, blocking: bool) -> NodeHandle {
-        let (node_tx, _) = channel(CHANNEL_SIZE);
-        let (tx, node_rx) = channel(CHANNEL_SIZE);
+        let (parent_tx, parent_rx) = channel(CHANNEL_SIZE);
+        let (child_tx, child_rx) = channel(CHANNEL_SIZE);
 
         let name = inner.get_name();
-        let node = Self::_new(node_tx.clone(), node_rx, inner, blocking);
+        let node = Self::_new(parent_tx.clone(), child_rx, inner, blocking);
         tokio::spawn(Self::serve(node));
 
-        NodeHandle::new(tx, node_tx, "Action", name, vec![], vec![], vec![])
+        NodeHandle::new(child_tx, parent_rx, "Action", name, vec![], vec![], vec![])
     }
 
     fn _new(
