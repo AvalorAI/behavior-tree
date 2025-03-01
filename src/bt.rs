@@ -953,7 +953,7 @@ mod tests {
     //     /   \
     //  Cond1  Action1
     //
-    // pass cond1, during action1 fail cond1, pass fb
+    // pass cond1, during action1 fail cond1, still pass sequence
     #[tokio::test]
     async fn test_one_time_condition() {
         // Setup
