@@ -25,10 +25,16 @@ impl Listener {
         let mut futures = self.extract_futures(); // To take ownership
 
         loop {
+            if futures.is_empty() {
+                log::debug!("No Handles left to listen to. Exiting external message listener.");
+                break;
+            }
             let (result, _, rem_futures) = select_all(futures).await; // Listen out all actions
             futures = rem_futures;
 
-            let Ok(response) = result else {  continue }; // Errors in the listener should not lead to the BT crashing
+            // When all handles are dropped, the run_listen will return an error.
+            // Then, the listen is not reinstated again.
+            let Ok(response) = result else { continue };
             match response {
                 FutResponse::Child(handle_index, msg, rx) => {
                     // Dont break the running BT because an external crate dropped the rx!
