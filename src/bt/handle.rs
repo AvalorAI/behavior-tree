@@ -1,4 +1,4 @@
-use actify::{ActorError, CacheRecvNewestError};
+use actify::CacheRecvNewestError;
 use anyhow::Result;
 use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
@@ -122,13 +122,13 @@ impl NodeHandle {
 
     pub fn get_json(&self) -> serde_json::value::Value {
         if !self.children_names.is_empty() {
-            serde_json::json!({ 
+            serde_json::json!({
                 "id": self.id.clone(),
                 "name": self.name.clone(),
                 "type": self.element.clone(),
                 "children": self.children_ids.clone()})
         } else {
-            serde_json::json!({ 
+            serde_json::json!({
                 "id": self.id.clone(),
                 "name": self.name.clone(),
                 "type": self.element.clone()})
@@ -186,7 +186,7 @@ pub enum ChildMessage {
 }
 
 impl ChildMessage {
-    pub fn is_kill(&self) -> bool{
+    pub fn is_kill(&self) -> bool {
         *self == ChildMessage::Kill
     }
 }
@@ -211,8 +211,6 @@ pub enum NodeError {
     TokioBroadcastSendError(String),
     #[error("Tokio broadcast receiver error")]
     TokioBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
-    #[error("Actor Error")]
-    ActorError(#[from] ActorError),
     #[error("Cache Error")]
     CacheError(#[from] CacheRecvNewestError),
 }

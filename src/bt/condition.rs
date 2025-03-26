@@ -307,11 +307,8 @@ where
     }
 
     async fn evaluate_now(&mut self) -> Result<bool, NodeError> {
-        match self.handle.get().await {
-            // A value is evaluated by the function
-            Ok(val) => self.run_evaluator(val).await,
-            Err(e) => Err(e.into()),
-        }
+        let val = self.handle.get().await;
+        self.run_evaluator(val).await
     }
 
     async fn listen_to_child(child: &mut Option<NodeHandle>) -> Result<ParentMessage, NodeError> {
@@ -325,7 +322,7 @@ where
     }
 
     async fn _serve(mut self) -> Result<(), NodeError> {
-        let mut cache = self.handle.create_cache().await?;
+        let mut cache = self.handle.create_cache().await;
         loop {
             tokio::select! {
                 Ok(msg) = self.rx.recv() => self.process_msg_from_parent(msg).await?,
