@@ -1301,5 +1301,4 @@ mod tests {
         // Then
         assert_eq!(res.unwrap(), Status::Success);
     }
-
 }

@@ -64,7 +64,11 @@ impl NodeHandle {
         if self.tx.receiver_count() > 0 {
             // It already exited if no receiver is alive
             if self.send(ChildMessage::Kill).is_err() {
-                log::debug!("{} {:?} already exited", self.element, self.name);
+                log::debug!(
+                    "Send failed for ChildMessage::Kill - {} {:?} already exited",
+                    self.element,
+                    self.name
+                );
                 return;
             };
             loop {
@@ -146,11 +150,6 @@ impl NodeHandle {
                 "name": self.name.clone(),
                 "type": self.element.clone()})
         }
-    }
-
-    #[cfg(test)]
-    pub fn has_receivers(&self) -> bool {
-        self.tx.receiver_count() > 0
     }
 }
 
