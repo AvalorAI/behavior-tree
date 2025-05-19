@@ -60,21 +60,34 @@ impl NodeHandle {
         }
     }
 
-    pub(crate) async fn kill(&mut self) -> Result<()> {
+    pub(crate) async fn kill(&mut self) {
         if self.tx.receiver_count() > 0 {
             // It already exited if no receiver is alive
-            self.send(ChildMessage::Kill)?;
+            if self.send(ChildMessage::Kill).is_err() {
+                log::debug!("{} {:?} already exited", self.element, self.name);
+                return;
+            };
             loop {
                 match self.listen().await {
-                    Ok(ParentMessage::Killed) => return Ok(()),
-                    Err(e) => log::debug!("Channel error received {e:?}"),
-                    _ => {} // Some other message that can be discarded
+                    Ok(ParentMessage::Killed) => {
+                        log::debug!(
+                            "Received ParentMessage::Killed from {} {}",
+                            self.element,
+                            self.name
+                        );
+                        return;
+                    }
+                    Ok(_) => {} // Some other message that can be discarded
+                    Err(NodeError::TokioBroadcastRecvError(_)) => {
+                        log::debug!("{} {} already exited", self.element, self.name);
+                        return;
+                    }
+                    Err(e) => log::debug!("Node error received {e:?}"),
                 };
             }
         } else {
             log::debug!("{} {:?} already exited", self.element, self.name);
         }
-        Ok(())
     }
 
     pub fn take_handles(&mut self) -> Vec<NodeHandle> {
@@ -134,8 +147,14 @@ impl NodeHandle {
                 "type": self.element.clone()})
         }
     }
+
+    #[cfg(test)]
+    pub fn has_receivers(&self) -> bool {
+        self.tx.receiver_count() > 0
+    }
 }
 
+#[derive(Debug)]
 pub enum FutResponse {
     Parent(ChildMessage, Receiver<ChildMessage>),
     Child(usize, ParentMessage, Receiver<ParentMessage>),

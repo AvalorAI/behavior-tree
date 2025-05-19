@@ -92,12 +92,7 @@ impl BehaviorTree {
         loop {
             if let Err(e) = self.start().await {
                 log::warn!("BT crashed: {:?} ", e);
-                if let Err(e) = self.kill().await {
-                    // When killing a BT fails, you get a 'rogue' BT with spawned actions still in the background
-                    // This is potentially dangerous, so a panic occurs.
-                    panic!("Killing BT failed: {e:?}");
-                }
-                return e;
+                self.kill().await;
             } else {
                 log::debug!("BT exited succesfully - restarting again");
                 sleep(Duration::from_millis(BT_SUCCESS_LOOP_TIME)).await;
@@ -105,18 +100,12 @@ impl BehaviorTree {
         }
     }
 
-    pub async fn kill(&mut self) -> Result<()> {
+    pub async fn kill(&mut self) {
         for handle in &mut self.handles {
             log::debug!("Killing {} {:?}", handle.element, handle.name);
-            if let Err(e) = handle.kill().await {
-                log::debug!("Killing {:?} failed: {e:?}", handle.name);
-                return Err(anyhow!(
-                    "Cannot safely rebuild behaviour tree with active nodes: {e:?}"
-                ));
-            };
+            handle.kill().await;
         }
         log::debug!("Killed all nodes succesfully");
-        Ok(())
     }
 
     fn verify_unique_ids(handles: &Vec<NodeHandle>) -> Result<()> {
@@ -345,7 +334,7 @@ mod tests {
         };
 
         sleep(Duration::from_millis(200)).await;
-        bt.kill().await.unwrap();
+        bt.kill().await;
 
         println!("Setting condition");
         handle.set(1).await;
@@ -450,7 +439,7 @@ mod tests {
             } => {}
         }
 
-        bt.kill().await.unwrap();
+        bt.kill().await;
     }
 
     //  Cond1
@@ -1312,4 +1301,60 @@ mod tests {
         // Then
         assert_eq!(res.unwrap(), Status::Success);
     }
+    
+    /*
+    //      Seq
+    //     /   \
+    // Action1 Action2
+    // 
+    #[tokio::test]
+    async fn test_kill() {
+        load_logger();
+
+        // When
+        let action1 = MockAction::new_error(1);
+        let action2 = MockAction::new(2);
+        let seq = Sequence::new(vec![action1, action2]);
+        let mut bt = BehaviorTree::new_test(seq);
+
+        for handle in bt.handles.iter() {
+            log::debug!("{handle:?}");
+        }
+        
+        bt.run_once().await.unwrap();
+
+        // bt.kill().await.unwrap();
+        for handle in bt.handles.iter() {
+            assert!(!handle.has_receivers(), "{} not killed!", handle.id);
+        }
+    }
+
+    //      Seq
+    //     /   \
+    // Action1 Action2
+    // 
+    #[tokio::test]
+    async fn test_2() {
+        load_logger();
+
+        // When
+        let action1 = MockAction::new_error(1);
+        let action2 = MockAction::new(2);
+        let seq = Sequence::new(vec![action1, action2]);
+        let mut bt = BehaviorTree::new_test(seq);
+
+        for handle in bt.handles.iter() {
+            log::debug!("{handle:?}");
+        }
+        
+        // let _ = bt.run_once().await;
+        bt.kill().await;
+
+        // bt.kill().await.unwrap();
+        for handle in bt.handles.iter() {
+            assert!(!handle.has_receivers(), "{} not killed!", handle.id);
+        }
+    }
+    */
+
 }
