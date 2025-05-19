@@ -83,7 +83,11 @@ impl NodeHandle {
                     }
                     Ok(_) => {} // Some other message that can be discarded
                     Err(NodeError::TokioBroadcastRecvError(_)) => {
-                        log::debug!("{} {} already exited", self.element, self.name);
+                        log::debug!(
+                            "Error while listening to child - {} {} already exited",
+                            self.element,
+                            self.name
+                        );
                         return;
                     }
                     Err(e) => log::debug!("Node error received {e:?}"),
