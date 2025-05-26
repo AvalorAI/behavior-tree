@@ -1,7 +1,7 @@
 use actify::{CacheRecvNewestError, Handle};
 use anyhow::Result;
-use async_trait::async_trait;
 use std::fmt::Debug;
+use std::future::Future;
 use std::marker::PhantomData;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration};
@@ -10,11 +10,9 @@ use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, St
 use super::CHANNEL_SIZE;
 
 // Any custom (async) evaluator can be made with this trait
-#[async_trait]
 pub trait Evaluator<V> {
     fn get_name(&self) -> String;
-
-    async fn evaluate(&mut self, val: V) -> Result<bool>;
+    fn evaluate(&mut self, val: V) -> impl Future<Output = Result<bool>> + Send;
 }
 
 // If you pass in just a sync closure to condition::new(), this hidden wrapper is used beneath
@@ -42,7 +40,6 @@ where
     }
 }
 
-#[async_trait]
 impl<V, F> Evaluator<V> for ClosureEvaluator<V, F>
 where
     V: Clone + Debug + Send + Sync + Clone + 'static,
@@ -334,13 +331,12 @@ where
     }
 }
 
-#[async_trait]
 impl<V, T> Node for ConditionProcess<V, T>
 where
     T: Evaluator<V> + Clone + Send + Sync + 'static,
     V: Clone + Debug + Send + Sync + Clone + 'static,
 {
-    async fn serve(mut self) {
+    async fn serve(self) {
         let poison_tx = self.tx.clone();
         let name = self.evaluator.get_name();
         let res = Self::_serve(self).await;
@@ -375,7 +371,6 @@ pub(crate) mod mocking {
     // A mock condition to showcase the usage of some arbitrary async work in the condition evaluation
 
     use anyhow::Result;
-    use async_trait::async_trait;
     use tokio::time::{sleep, Duration};
 
     use super::Evaluator;
@@ -397,7 +392,6 @@ pub(crate) mod mocking {
         }
     }
 
-    #[async_trait]
     impl Evaluator<i32> for MockAsyncCondition {
         fn get_name(&self) -> String {
             self.name.clone()
