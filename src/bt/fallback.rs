@@ -1,5 +1,4 @@
 use anyhow::Result;
-use async_trait::async_trait;
 use futures::future::select_all;
 use futures::{Future, FutureExt};
 
@@ -262,9 +261,8 @@ impl FallbackProcess {
     }
 }
 
-#[async_trait]
 impl Node for FallbackProcess {
-    async fn serve(mut self) {
+    async fn serve(self) {
         let poison_tx = self.tx.clone();
         let name = self.name.clone();
         let res = Self::_serve(self).await;

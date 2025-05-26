@@ -1,6 +1,5 @@
 use actify::CacheRecvNewestError;
 use anyhow::Result;
-use async_trait::async_trait;
 use simple_xml_builder::XMLElement;
 
 use thiserror::Error;
@@ -163,9 +162,8 @@ pub enum FutResponse {
     Child(usize, ParentMessage, Receiver<ParentMessage>),
 }
 
-#[async_trait]
 pub trait Node: Sync + Send {
-    async fn serve(mut self);
+    async fn serve(self);
 
     // Consuming and returning the receiver allows stacking it in a future vector
     async fn run_listen_parent(mut rx: Receiver<ChildMessage>) -> Result<FutResponse, NodeError> {

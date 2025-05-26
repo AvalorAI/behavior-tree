@@ -1,5 +1,6 @@
+use std::future::Future;
+
 use anyhow::Result;
-use async_trait::async_trait;
 
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::time::{sleep, Duration};
@@ -7,11 +8,9 @@ use tokio::time::{sleep, Duration};
 use super::handle::{ChildMessage, Node, NodeError, NodeHandle, ParentMessage, Status};
 use super::CHANNEL_SIZE;
 
-#[async_trait]
 pub trait Executor {
     fn get_name(&self) -> String;
-
-    async fn execute(&mut self) -> Result<bool>;
+    fn execute(&mut self) -> impl Future<Output = Result<bool>> + Send;
 }
 
 // Prevent typo errors in booleans by using explicit types
@@ -157,9 +156,8 @@ where
     }
 }
 
-#[async_trait]
 impl<T: Executor + Send + Sync + 'static> Node for ActionProcess<T> {
-    async fn serve(mut self) {
+    async fn serve(self) {
         let poison_tx = self.tx.clone();
         let name = self.inner.get_name();
         let res = Self::_serve(self).await;
@@ -207,7 +205,6 @@ impl Wait {
     }
 }
 
-#[async_trait]
 impl Executor for Wait {
     fn get_name(&self) -> String {
         self.name.clone()
@@ -231,7 +228,6 @@ impl Success {
     }
 }
 
-#[async_trait]
 impl Executor for Success {
     fn get_name(&self) -> String {
         self.name.clone()
@@ -254,7 +250,6 @@ impl Failure {
     }
 }
 
-#[async_trait]
 impl Executor for Failure {
     fn get_name(&self) -> String {
         self.name.clone()
@@ -269,7 +264,6 @@ impl Executor for Failure {
 pub(crate) mod mocking {
 
     use anyhow::{anyhow, Result};
-    use async_trait::async_trait;
     use tokio::time::{sleep, Duration};
 
     use super::{Action, BlockingAction, Executor};
@@ -325,7 +319,6 @@ pub(crate) mod mocking {
         }
     }
 
-    #[async_trait]
     impl Executor for MockAction {
         fn get_name(&self) -> String {
             self.name.clone()
@@ -388,7 +381,6 @@ pub(crate) mod mocking {
         }
     }
 
-    #[async_trait]
     impl Executor for MockBlockingAction {
         fn get_name(&self) -> String {
             self.name.clone()
@@ -429,7 +421,6 @@ pub(crate) mod mocking {
         }
     }
 
-    #[async_trait]
     impl Executor for MockRunBlockingOnce {
         fn get_name(&self) -> String {
             self.name.clone()

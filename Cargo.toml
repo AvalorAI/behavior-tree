@@ -1,6 +1,6 @@
 [package]
 name = "behavior-tree"
-version = "0.1.38"
+version = "0.1.39"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -13,7 +13,6 @@ futures-util = { version = "0.3", default-features = false, features = [
   "sink",
   "std",
 ] }
-async-trait = "0.1"
 anyhow = "1.0"
 thiserror = "2.0.12"
 simple-xml-builder = "1.1"
